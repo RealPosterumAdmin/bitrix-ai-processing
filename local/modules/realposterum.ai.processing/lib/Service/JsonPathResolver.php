@@ -18,6 +18,10 @@ final class JsonPathResolver
         if (!preg_match('/^[A-Za-z0-9_\-\.\[\]]+$/', $path)) {
             throw new RuntimeException('JSON path содержит недопустимые символы: ' . $path);
         }
+
+        if (str_contains($path, '..') || str_contains($path, '[]') || str_contains($path, '[[') || str_contains($path, ']]')) {
+            throw new RuntimeException('JSON path содержит пустые или повторяющиеся сегменты: ' . $path);
+        }
     }
 
     public function exists(array $data, string $path): bool

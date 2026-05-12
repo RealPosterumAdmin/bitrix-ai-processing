@@ -65,7 +65,10 @@ final class DecisionService
         if ($elementFields !== []) {
             $element = new \CIBlockElement();
             if (!$element->Update((int) $task['PRODUCT_ID'], $elementFields)) {
-                throw new RuntimeException('Не удалось обновить поля товара: ' . $element->LAST_ERROR);
+                $this->logService->error($taskId, 'apply_error', 'Ошибка обновления полей товара.', [
+                    'bitrix_error' => (string) $element->LAST_ERROR,
+                ]);
+                throw new RuntimeException('Не удалось обновить поля товара. Подробности сохранены в логе задачи.');
             }
         }
 

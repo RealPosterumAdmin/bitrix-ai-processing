@@ -159,9 +159,13 @@ final class ProcessingTaskRepository
 
     public function markError(int $taskId, string $message): void
     {
+        $truncatedMessage = mb_strlen($message) > self::MAX_ERROR_MESSAGE_LENGTH
+            ? mb_substr($message, 0, self::MAX_ERROR_MESSAGE_LENGTH - 14) . '...[truncated]'
+            : $message;
+
         $this->update($taskId, [
             'STATUS' => TaskStatus::ERROR,
-            'ERROR_MESSAGE' => mb_substr($message, 0, self::MAX_ERROR_MESSAGE_LENGTH),
+            'ERROR_MESSAGE' => $truncatedMessage,
             'LAST_ATTEMPT_AT' => new DateTime(),
         ]);
     }
