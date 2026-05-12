@@ -1,12 +1,14 @@
 <?php
 
+declare(strict_types=1);
+
 namespace RealPosterum\AiProcessing\Contract;
 
 interface HttpClientInterface
 {
     /**
      * @param array<string, string> $headers
-     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
      */
-    public function postJson(string $url, array $headers, array $payload): string;
+    public function request(string $method, string $url, array $headers, ?string $body, int $timeout): array;
 }

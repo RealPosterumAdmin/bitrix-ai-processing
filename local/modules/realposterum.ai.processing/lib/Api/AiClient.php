@@ -1,74 +1,59 @@
 <?php
 
+declare(strict_types=1);
+
 namespace RealPosterum\AiProcessing\Api;
 
 use RealPosterum\AiProcessing\Contract\HttpClientInterface;
-use RealPosterum\AiProcessing\Dto\ProcessingResult;
 use RealPosterum\AiProcessing\Service\ModuleSettings;
 use RuntimeException;
 
-class AiClient
+final class AiClient
 {
-    public function __construct(
-        private HttpClientInterface $httpClient,
-        private ModuleSettings $settings
-    ) {
+    public function __construct(private HttpClientInterface $httpClient)
+    {
     }
 
     /**
-     * @param array<string, mixed> $productPayload
+     * @return array<string, mixed>
      */
-    public function processProduct(array $productPayload, string $prompt): ProcessingResult
+    public function send(ModuleSettings $settings, string $requestBody): array
     {
-        $token = trim($this->settings->getApiToken());
-        if ($token === '') {
+        $headers = $settings->getRequestHeaders();
+        if ($settings->getAuthType() === 'bearer' && trim($settings->getAuthToken()) === '') {
             throw new RuntimeException('Не заполнен токен AI API.');
         }
 
-        $payload = [
-            'model' => $this->settings->getModel(),
-            'response_format' => ['type' => 'json_object'],
-            'messages' => [
-                [
-                    'role' => 'system',
-                    'content' => $this->settings->getSystemPrompt(),
-                ],
-                [
-                    'role' => 'user',
-                    'content' => $prompt,
-                ],
-            ],
-            'metadata' => [
-                'module' => 'realposterum.ai.processing',
-                'product_id' => (string) ($productPayload['product_id'] ?? ''),
-            ],
-        ];
+        if ($settings->getAuthType() === 'basic' && (trim($settings->getAuthLogin()) === '' || trim($settings->getAuthPassword()) === '')) {
+            throw new RuntimeException('Не заполнены данные basic auth.');
+        }
 
-        $response = $this->httpClient->postJson(
-            $this->settings->getApiBaseUrl(),
-            ['Authorization' => 'Bearer ' . $token],
-            $payload
+        $result = $this->httpClient->request(
+            $settings->getHttpMethod(),
+            $settings->getEndpoint(),
+            $headers,
+            $requestBody,
+            $settings->getTimeout()
         );
 
-        $decoded = json_decode($response, true);
+        $status = (int) ($result['status'] ?? 0);
+        $body = (string) ($result['body'] ?? '');
+        if ($status < 200 || $status >= 300) {
+            throw new RuntimeException('AI API вернул статус ' . $status . '.');
+        }
+
+        $decoded = json_decode($body, true);
         if (!is_array($decoded)) {
             throw new RuntimeException('AI API вернул некорректный JSON.');
         }
 
-        $content = $decoded['choices'][0]['message']['content'] ?? $decoded;
-        if (is_string($content)) {
-            $content = json_decode($content, true);
-        }
-
-        if (!is_array($content)) {
-            throw new RuntimeException('AI API не вернул ожидаемую JSON-структуру.');
-        }
-
-        return new ProcessingResult(
-            is_array($content['fields'] ?? null) ? $content['fields'] : [],
-            is_array($content['properties'] ?? null) ? $content['properties'] : [],
-            (string) ($content['summary'] ?? ''),
-            $decoded
-        );
+        return [
+            'method' => $settings->getHttpMethod(),
+            'endpoint' => $settings->getEndpoint(),
+            'headers' => $settings->getMaskedRequestHeaders(),
+            'request_body' => $requestBody,
+            'response_body' => $body,
+            'decoded' => $decoded,
+        ];
     }
 }
