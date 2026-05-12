@@ -11,6 +11,8 @@ use RuntimeException;
 
 final class ProcessingTaskRepository
 {
+    private const MAX_ERROR_MESSAGE_LENGTH = 65535;
+
     /**
      * @param array<string, mixed> $fields
      */
@@ -159,7 +161,7 @@ final class ProcessingTaskRepository
     {
         $this->update($taskId, [
             'STATUS' => TaskStatus::ERROR,
-            'ERROR_MESSAGE' => mb_substr($message, 0, 65535),
+            'ERROR_MESSAGE' => mb_substr($message, 0, self::MAX_ERROR_MESSAGE_LENGTH),
             'LAST_ATTEMPT_AT' => new DateTime(),
         ]);
     }

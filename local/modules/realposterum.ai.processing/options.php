@@ -25,9 +25,9 @@ Loader::includeModule($moduleId);
 
 $fieldCatalog = new FieldCatalog();
 $jsonPathResolver = new JsonPathResolver();
-$formInput = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : [];
+$submittedData = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : [];
 $settingsService = new ModuleSettings($moduleId);
-[$formData, $validationErrors] = $settingsService->normalizeAndValidate($formInput, $fieldCatalog, $jsonPathResolver);
+[$formData, $validationErrors] = $settingsService->normalizeAndValidate($submittedData, $fieldCatalog, $jsonPathResolver);
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     $formData = $settingsService->toArray();
     $validationErrors = [];
