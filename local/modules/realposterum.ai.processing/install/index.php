@@ -1,7 +1,8 @@
 <?php
 
+declare(strict_types=1);
+
 use Bitrix\Main\EventManager;
-use Bitrix\Main\IO\Directory;
 use Bitrix\Main\Localization\Loc;
 use Bitrix\Main\ModuleManager;
 
@@ -19,53 +20,43 @@ class realposterum_ai_processing extends CModule
     public $MODULE_VERSION;
     public $MODULE_VERSION_DATE;
     public $MODULE_NAME = 'RealPosterum AI Processing';
-    public $MODULE_DESCRIPTION = 'Очередь AI-обработки товаров с ручным подтверждением в админке Bitrix.';
+    public $MODULE_DESCRIPTION = 'AI-обработка карточек товаров с промежуточным хранением и ручным подтверждением.';
     public $PARTNER_NAME = 'RealPosterum';
     public $PARTNER_URI = 'https://github.com/RealPosterumAdmin';
 
     public function __construct()
     {
-        $version = [];
+        $arModuleVersion = [];
         include __DIR__ . '/version.php';
-
-        $this->MODULE_VERSION = $version['VERSION'] ?? $arModuleVersion['VERSION'];
-        $this->MODULE_VERSION_DATE = $version['VERSION_DATE'] ?? $arModuleVersion['VERSION_DATE'];
+        $this->MODULE_VERSION = $arModuleVersion['VERSION'] ?? '0.1.0';
+        $this->MODULE_VERSION_DATE = $arModuleVersion['VERSION_DATE'] ?? '2026-05-12 00:00:00';
     }
 
     public function DoInstall(): void
     {
         ModuleManager::registerModule($this->MODULE_ID);
-        $this->installFiles();
         $this->installDB();
+        $this->installFiles();
+        $this->registerEvents();
     }
 
     public function DoUninstall(): void
     {
-        $this->unInstallDB();
+        $this->unRegisterEvents();
         $this->unInstallFiles();
+        $this->unInstallDB();
         ModuleManager::unRegisterModule($this->MODULE_ID);
     }
 
     protected function installFiles(): void
     {
-        CopyDirFiles(
-            __DIR__ . '/admin',
-            $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin',
-            true,
-            true
-        );
+        CopyDirFiles(__DIR__ . '/admin', $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin', true, true);
     }
 
     protected function unInstallFiles(): void
     {
-        $adminFiles = [
-            '/bitrix/admin/realposterum_ai_processing_tasks.php',
-            '/bitrix/admin/realposterum_ai_processing_settings.php',
-        ];
-
-        foreach ($adminFiles as $adminFile) {
-            $fullPath = $_SERVER['DOCUMENT_ROOT'] . $adminFile;
-
+        foreach (['/bitrix/admin/realposterum_ai_processing_tasks.php', '/bitrix/admin/realposterum_ai_processing_settings.php'] as $file) {
+            $fullPath = $_SERVER['DOCUMENT_ROOT'] . $file;
             if (file_exists($fullPath)) {
                 unlink($fullPath);
             }
@@ -90,5 +81,27 @@ class realposterum_ai_processing extends CModule
         foreach (array_filter(array_map('trim', explode(';', (string) $sqlBatch))) as $query) {
             $DB->Query($query);
         }
+    }
+
+    protected function registerEvents(): void
+    {
+        EventManager::getInstance()->registerEventHandlerCompatible(
+            'main',
+            'OnAdminContextMenuShow',
+            $this->MODULE_ID,
+            'RealPosterum\\AiProcessing\\Ui\\AdminProductButton',
+            'onAdminContextMenuShow'
+        );
+    }
+
+    protected function unRegisterEvents(): void
+    {
+        EventManager::getInstance()->unRegisterEventHandler(
+            'main',
+            'OnAdminContextMenuShow',
+            $this->MODULE_ID,
+            'RealPosterum\\AiProcessing\\Ui\\AdminProductButton',
+            'onAdminContextMenuShow'
+        );
     }
 }

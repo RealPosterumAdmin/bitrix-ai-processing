@@ -1,19 +1,23 @@
 <?php
 
+declare(strict_types=1);
+
 namespace RealPosterum\AiProcessing\Dto;
 
-class ProcessingResult
+final class ProcessingResult
 {
     /**
-     * @param array<string, mixed> $fields
-     * @param array<string, mixed> $properties
-     * @param array<string, mixed> $rawResponse
+     * @param array<string, mixed> $requestPayload
+     * @param array<string, mixed> $responseData
+     * @param array<int, array<string, mixed>> $comparison
      */
     public function __construct(
-        private array $fields,
-        private array $properties,
-        private string $summary,
-        private array $rawResponse
+        private array $requestPayload,
+        private string $requestBody,
+        private string $responseBody,
+        private array $responseData,
+        private array $comparison,
+        private string $summary
     ) {
     }
 
@@ -23,10 +27,12 @@ class ProcessingResult
     public function toArray(): array
     {
         return [
-            'fields' => $this->fields,
-            'properties' => $this->properties,
+            'request_payload' => $this->requestPayload,
+            'request_body' => $this->requestBody,
+            'response_body' => $this->responseBody,
+            'response_data' => $this->responseData,
+            'comparison' => $this->comparison,
             'summary' => $this->summary,
-            'raw' => $this->rawResponse,
         ];
     }
 }
