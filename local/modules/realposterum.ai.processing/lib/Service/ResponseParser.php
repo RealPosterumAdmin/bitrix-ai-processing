@@ -54,7 +54,7 @@ final class ResponseParser
             $oldValue = $snapshot->getTargetValue($targetType, $targetCode);
             $key = $targetType . ':' . $targetCode;
             $changed = $this->normalizeForCompare($oldValue) !== $this->normalizeForCompare($newValue);
-            if (!$changed && !$allowEmpty) {
+            if (!$changed) {
                 continue;
             }
 

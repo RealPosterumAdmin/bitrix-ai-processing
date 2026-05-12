@@ -12,6 +12,7 @@ use RuntimeException;
 final class ProcessingTaskRepository
 {
     private const MAX_ERROR_MESSAGE_LENGTH = 65535;
+    private const TRUNCATION_SUFFIX = '...[truncated]';
 
     /**
      * @param array<string, mixed> $fields
@@ -160,7 +161,7 @@ final class ProcessingTaskRepository
     public function markError(int $taskId, string $message): void
     {
         $truncatedMessage = mb_strlen($message) > self::MAX_ERROR_MESSAGE_LENGTH
-            ? mb_substr($message, 0, self::MAX_ERROR_MESSAGE_LENGTH - 14) . '...[truncated]'
+            ? mb_substr($message, 0, self::MAX_ERROR_MESSAGE_LENGTH - mb_strlen(self::TRUNCATION_SUFFIX)) . self::TRUNCATION_SUFFIX
             : $message;
 
         $this->update($taskId, [

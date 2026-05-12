@@ -159,7 +159,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
             <div class="adm-detail-title">Сравнение по задаче #<?= (int) $compareTask['ID'] ?></div>
             <div style="margin-bottom:12px;">Товар #<?= (int) $compareTask['PRODUCT_ID'] ?>, статус: <?= $renderStatus((string) $compareTask['STATUS']) ?></div>
             <?php if (!empty($compareData['summary'])): ?><div class="adm-info-message-wrap"><div class="adm-info-message"><?= htmlspecialcharsbx((string) $compareData['summary']) ?></div></div><?php endif; ?>
-            <details style="margin-bottom:16px;"><summary>Что отправили</summary><textarea rows="14" cols="90" readonly><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea></details>
+            <details style="margin-bottom:16px;"><summary>Что отправили</summary><textarea rows="14" cols="90" readonly aria-label="Что отправили в AI"><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea></details>
             <form method="post">
                 <?= bitrix_sessid_post() ?>
                 <input type="hidden" name="action" value="apply">
