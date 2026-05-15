@@ -48,12 +48,12 @@ class realposterum_ai_processing extends CModule
         ModuleManager::unRegisterModule($this->MODULE_ID);
     }
 
-    protected function installFiles(): void
+    public function installFiles(): void
     {
         CopyDirFiles(__DIR__ . '/admin', $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin', true, true);
     }
 
-    protected function unInstallFiles(): void
+    public function unInstallFiles(): void
     {
         foreach (['/bitrix/admin/realposterum_ai_processing_tasks.php', '/bitrix/admin/realposterum_ai_processing_settings.php'] as $file) {
             $fullPath = $_SERVER['DOCUMENT_ROOT'] . $file;
@@ -63,7 +63,7 @@ class realposterum_ai_processing extends CModule
         }
     }
 
-    protected function installDB(): void
+    public function installDB(): void
     {
         global $DB;
 
@@ -73,7 +73,7 @@ class realposterum_ai_processing extends CModule
         }
     }
 
-    protected function unInstallDB(): void
+    public function unInstallDB(): void
     {
         global $DB;
 
@@ -83,7 +83,7 @@ class realposterum_ai_processing extends CModule
         }
     }
 
-    protected function registerEvents(): void
+    public function registerEvents(): void
     {
         EventManager::getInstance()->registerEventHandlerCompatible(
             'main',
@@ -94,7 +94,7 @@ class realposterum_ai_processing extends CModule
         );
     }
 
-    protected function unRegisterEvents(): void
+    public function unRegisterEvents(): void
     {
         EventManager::getInstance()->unRegisterEventHandler(
             'main',

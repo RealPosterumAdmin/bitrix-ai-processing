@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace RealPosterum\AiProcessing\Service;
 
+use Bitrix\Main\Loader;
 use RealPosterum\AiProcessing\Model\ProductSnapshot;
 use RuntimeException;
 
@@ -11,6 +14,10 @@ class ProductSnapshotBuilder
     {
         if ($productId <= 0 || $iblockId <= 0) {
             throw new RuntimeException('Нужно передать корректные PRODUCT_ID и IBLOCK_ID.');
+        }
+
+        if (!Loader::includeModule('iblock')) {
+            throw new RuntimeException('Не удалось подключить модуль iblock.');
         }
 
         $element = \CIBlockElement::GetList(

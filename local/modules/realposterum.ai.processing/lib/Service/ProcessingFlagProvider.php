@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace RealPosterum\AiProcessing\Service;
 
+use Bitrix\Main\Loader;
+use RuntimeException;
+
 final class ProcessingFlagProvider
 {
     public function __construct(private ModuleSettings $settings)
@@ -19,6 +22,10 @@ final class ProcessingFlagProvider
         $propertyCode = $this->settings->getNeedProcessingPropertyCode();
         if ($iblockId <= 0 || $propertyCode === '') {
             return [];
+        }
+
+        if (!Loader::includeModule('iblock')) {
+            throw new RuntimeException('Не удалось подключить модуль iblock.');
         }
 
         $rows = [];

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RealPosterum\AiProcessing\Service;
 
+use Bitrix\Main\Loader;
 use RuntimeException;
 
 final class FieldCatalog
@@ -45,8 +46,16 @@ final class FieldCatalog
             return [];
         }
 
+        if (!Loader::includeModule('iblock')) {
+            throw new RuntimeException('Не удалось подключить модуль iblock.');
+        }
+
         $properties = [];
-        $propertyResult = \CIBlockProperty::GetList(['SORT' => 'ASC', 'NAME' => 'ASC'], ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y']);
+        $propertyResult = \CIBlockProperty::GetList(
+            ['SORT' => 'ASC', 'NAME' => 'ASC'],
+            ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y']
+        );
+
         while ($property = $propertyResult->Fetch()) {
             $code = (string) ($property['CODE'] ?: $property['ID']);
             $properties[$code] = sprintf('%s [%s]', (string) $property['NAME'], $code);

@@ -22,6 +22,7 @@ if (!$USER->IsAdmin()) {
 }
 
 Loader::includeModule($moduleId);
+Loader::includeModule('iblock');
 
 $fieldCatalog = new FieldCatalog();
 $jsonPathResolver = new JsonPathResolver();
