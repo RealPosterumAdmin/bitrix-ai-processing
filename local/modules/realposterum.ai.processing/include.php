@@ -24,6 +24,8 @@ Loader::registerAutoLoadClasses(
         'RealPosterum\\AiProcessing\\Service\\ProcessingFlagProvider' => 'lib/Service/ProcessingFlagProvider.php',
         'RealPosterum\\AiProcessing\\Service\\ProcessingService' => 'lib/Service/ProcessingService.php',
         'RealPosterum\\AiProcessing\\Service\\ProductDataExtractor' => 'lib/Service/ProductDataExtractor.php',
+        'RealPosterum\\AiProcessing\\Service\\ProductSnapshotBuilder' => 'lib/Service/ProductSnapshotBuilder.php',
+        'RealPosterum\\AiProcessing\\Service\\PromptBuilder' => 'lib/Service/PromptBuilder.php',
         'RealPosterum\\AiProcessing\\Service\\ResponseParser' => 'lib/Service/ResponseParser.php',
         'RealPosterum\\AiProcessing\\Table\\ProcessingLogTable' => 'lib/Table/ProcessingLogTable.php',
         'RealPosterum\\AiProcessing\\Table\\ProcessingTaskTable' => 'lib/Table/ProcessingTaskTable.php',

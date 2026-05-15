@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RealPosterum\AiProcessing\Service;
 
+use Bitrix\Main\Loader;
 use RealPosterum\AiProcessing\Enum\TaskStatus;
 use RealPosterum\AiProcessing\Repository\ProcessingTaskRepository;
 use RuntimeException;
@@ -61,6 +62,8 @@ final class DecisionService
         if ($elementFields === [] && $propertyValues === []) {
             throw new RuntimeException('Нужно выбрать хотя бы одно изменение для применения.');
         }
+
+        $this->ensureIblockModule();
 
         if ($elementFields !== []) {
             $element = new \CIBlockElement();
@@ -124,6 +127,14 @@ final class DecisionService
             return;
         }
 
+        $this->ensureIblockModule();
         \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$code => false]);
+    }
+
+    private function ensureIblockModule(): void
+    {
+        if (!Loader::includeModule('iblock')) {
+            throw new RuntimeException('Не удалось подключить модуль iblock.');
+        }
     }
 }

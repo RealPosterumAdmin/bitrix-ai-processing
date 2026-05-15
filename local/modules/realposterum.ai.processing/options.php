@@ -21,8 +21,15 @@ if (!$USER->IsAdmin()) {
     return;
 }
 
-Loader::includeModule($moduleId);
-Loader::includeModule('iblock');
+if (!Loader::includeModule($moduleId)) {
+    echo '<div class="adm-info-message-wrap"><div class="adm-info-message adm-info-message-red">Модуль realposterum.ai.processing не установлен или не подключён.</div></div>';
+    return;
+}
+
+if (!Loader::includeModule('iblock')) {
+    echo '<div class="adm-info-message-wrap"><div class="adm-info-message adm-info-message-red">Не удалось подключить модуль iblock. Проверьте установку стандартного модуля инфоблоков.</div></div>';
+    return;
+}
 
 $fieldCatalog = new FieldCatalog();
 $jsonPathResolver = new JsonPathResolver();
