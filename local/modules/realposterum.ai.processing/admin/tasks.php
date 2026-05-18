@@ -31,6 +31,13 @@ if (!Loader::includeModule($moduleId)) {
     return;
 }
 
+if (!Loader::includeModule('iblock')) {
+    require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
+    echo '<div class="adm-info-message-wrap"><div class="adm-info-message adm-info-message-red">Не удалось подключить модуль iblock. Проверьте установку стандартного модуля инфоблоков.</div></div>';
+    require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php';
+    return;
+}
+
 $settings = new ModuleSettings($moduleId);
 $taskRepository = new ProcessingTaskRepository();
 $logRepository = new ProcessingLogRepository();
