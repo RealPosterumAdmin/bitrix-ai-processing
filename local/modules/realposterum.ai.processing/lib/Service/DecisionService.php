@@ -13,9 +13,9 @@ final class DecisionService
 {
     public function __construct(
         private ProcessingTaskRepository $taskRepository,
-        private ModuleSettings $settings,
         private FieldCatalog $fieldCatalog,
-        private LogService $logService
+        private LogService $logService,
+        private ProcessingFlagProvider $flagProvider
     ) {
     }
 
@@ -123,29 +123,7 @@ final class DecisionService
 
     private function clearNeedProcessingFlag(int $productId, int $iblockId): void
     {
-        if ($this->settings->getFlagSource() !== 'property') {
-            return;
-        }
-
-        $code = $this->settings->getNeedProcessingPropertyCode();
-        if ($code === '') {
-            return;
-        }
-
-        $this->ensureIblockModule();
-        $property = $this->fieldCatalog->getPropertyMetadata($iblockId, $code);
-        $emptyValue = false;
-        if (is_array($property)) {
-            if ((string) ($property['PROPERTY_TYPE'] ?? '') === 'S' && strtoupper((string) ($property['USER_TYPE'] ?? '')) === 'HTML') {
-                $emptyValue = ['VALUE' => ['TEXT' => '', 'TYPE' => 'html']];
-            } elseif ((string) ($property['MULTIPLE'] ?? 'N') === 'Y') {
-                $emptyValue = [];
-            } else {
-                $emptyValue = '';
-            }
-        }
-
-        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$code => $emptyValue]);
+        $this->flagProvider->clearFlag($productId, $iblockId);
     }
 
     private function ensureIblockModule(): void

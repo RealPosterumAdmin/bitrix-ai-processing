@@ -55,7 +55,7 @@ $processingService = new ProcessingService(
 );
 $flagProvider = new ProcessingFlagProvider($settings);
 $fieldCatalog = new FieldCatalog();
-$decisionService = new DecisionService($taskRepository, $settings, $fieldCatalog, $logService);
+$decisionService = new DecisionService($taskRepository, $fieldCatalog, $logService, $flagProvider);
 $pathResolver = new JsonPathResolver();
 $submittedEditedValues = is_array($_POST['edited_values'] ?? null) ? (array) $_POST['edited_values'] : [];
 
@@ -469,42 +469,45 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                 <div style="font-weight:600; margin-bottom:6px;">Точный запрос</div>
                 <textarea rows="14" readonly aria-label="Что отправили в AI" style="width:100%;box-sizing:border-box;"><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea>
             </details>
-            <form method="post">
-                <?= bitrix_sessid_post() ?>
-                <input type="hidden" name="action" value="apply">
-                <input type="hidden" name="task_id" value="<?= (int) $compareTask['ID'] ?>">
-                <table class="adm-list-table" width="100%">
-                    <thead><tr class="adm-list-table-header"><td width="6%">Применить</td><td width="24%">Поле</td><td width="30%">Было</td><td width="40%">Изменение</td></tr></thead>
-                    <tbody>
-                    <?php foreach ((array) ($compareData['comparison'] ?? []) as $index => $row): ?>
-                        <?php
-                        $comparisonKey = (string) ($row['key'] ?? '');
-                        $controlConfig = $fieldCatalog->getInputControl(
-                            (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0),
-                            (string) ($row['target_type'] ?? ''),
-                            (string) ($row['target_code'] ?? '')
-                        );
-                        $editedValue = array_key_exists($comparisonKey, $submittedEditedValues)
-                            ? $submittedEditedValues[$comparisonKey]
-                            : ($row['new_value'] ?? null);
-                        $inputName = 'edited_values[' . $comparisonKey . ']';
-                        $inputId = 'edited_' . preg_replace('/[^a-z0-9_]+/i', '_', $comparisonKey);
-                        ?>
-                        <tr class="adm-list-table-row">
-                            <td class="adm-list-table-cell" style="vertical-align:top;"><input type="checkbox" name="selected_fields[]" value="<?= htmlspecialcharsbx($comparisonKey) ?>"<?= in_array($comparisonKey, (array) ($compareData['selected_by_default'] ?? []), true) ? ' checked' : '' ?>></td>
-                            <td class="adm-list-table-cell" style="vertical-align:top;">
-                                <strong><?= (int) $index + 1 ?>. <?= htmlspecialcharsbx($getFieldLabel($fieldCatalog, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), (string) ($row['target_type'] ?? ''), (string) ($row['target_code'] ?? ''))) ?></strong><br>
-                                <span style="color:#666;"><?= htmlspecialcharsbx((string) ($row['target_code'] ?? '')) ?></span>
-                            </td>
-                            <td class="adm-list-table-cell" style="vertical-align:top;"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['old_value'] ?? null)) ?></pre></td>
-                            <td class="adm-list-table-cell" style="vertical-align:top;"><?= $renderEditableControl($inputName, $inputId, $editedValue, $controlConfig) ?></td>
-                        </tr>
-                    <?php endforeach; ?>
-                    <?php if (empty($compareData['comparison'])): ?><tr><td class="adm-list-table-cell" colspan="4">Изменений для сохранения нет, но человекочитаемый ответ сервиса показан выше.</td></tr><?php endif; ?>
-                    </tbody>
-                </table>
-                <p><button type="submit" class="adm-btn-save">Подтвердить и сохранить</button></p>
-            </form>
+            <?php if (!empty($compareData['comparison'])): ?>
+                <form method="post">
+                    <?= bitrix_sessid_post() ?>
+                    <input type="hidden" name="action" value="apply">
+                    <input type="hidden" name="task_id" value="<?= (int) $compareTask['ID'] ?>">
+                    <table class="adm-list-table" width="100%">
+                        <thead><tr class="adm-list-table-header"><td width="6%">Применить</td><td width="24%">Поле</td><td width="30%">Было</td><td width="40%">Изменение</td></tr></thead>
+                        <tbody>
+                        <?php foreach ((array) ($compareData['comparison'] ?? []) as $index => $row): ?>
+                            <?php
+                            $comparisonKey = (string) ($row['key'] ?? '');
+                            $controlConfig = $fieldCatalog->getInputControl(
+                                (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0),
+                                (string) ($row['target_type'] ?? ''),
+                                (string) ($row['target_code'] ?? '')
+                            );
+                            $editedValue = array_key_exists($comparisonKey, $submittedEditedValues)
+                                ? $submittedEditedValues[$comparisonKey]
+                                : ($row['new_value'] ?? null);
+                            $inputName = 'edited_values[' . $comparisonKey . ']';
+                            $inputId = 'edited_' . preg_replace('/[^a-z0-9_]+/i', '_', $comparisonKey);
+                            ?>
+                            <tr class="adm-list-table-row">
+                                <td class="adm-list-table-cell" style="vertical-align:top;"><input type="checkbox" name="selected_fields[]" value="<?= htmlspecialcharsbx($comparisonKey) ?>"<?= in_array($comparisonKey, (array) ($compareData['selected_by_default'] ?? []), true) ? ' checked' : '' ?>></td>
+                                <td class="adm-list-table-cell" style="vertical-align:top;">
+                                    <strong><?= (int) $index + 1 ?>. <?= htmlspecialcharsbx($getFieldLabel($fieldCatalog, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), (string) ($row['target_type'] ?? ''), (string) ($row['target_code'] ?? ''))) ?></strong><br>
+                                    <span style="color:#666;"><?= htmlspecialcharsbx((string) ($row['target_code'] ?? '')) ?></span>
+                                </td>
+                                <td class="adm-list-table-cell" style="vertical-align:top;"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['old_value'] ?? null)) ?></pre></td>
+                                <td class="adm-list-table-cell" style="vertical-align:top;"><?= $renderEditableControl($inputName, $inputId, $editedValue, $controlConfig) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                    <p><button type="submit" class="adm-btn-save">Подтвердить и сохранить</button></p>
+                </form>
+            <?php else: ?>
+                <div class="adm-info-message-wrap"><div class="adm-info-message">Изменений для применения нет.</div></div>
+            <?php endif; ?>
             <form method="post" style="margin-bottom:16px;">
                 <?= bitrix_sessid_post() ?>
                 <input type="hidden" name="action" value="reject">
