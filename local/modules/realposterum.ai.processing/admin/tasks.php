@@ -171,6 +171,22 @@ $renderEditableControl = static function (
     return '<textarea id="' . $escapedId . '" name="' . $escapedName . '" rows="' . $rows . '" style="width:100%;box-sizing:border-box;">' . htmlspecialcharsbx($preparedValue) . '</textarea>';
 };
 
+$renderComparisonDetails = static function (
+    string $summary,
+    string $oldLabel,
+    mixed $oldValue,
+    string $newLabel,
+    mixed $newValue
+) use ($renderValue): string {
+    return '<details style="margin-top:8px;">'
+        . '<summary style="cursor:pointer;color:#2067b0;">' . htmlspecialcharsbx($summary) . '</summary>'
+        . '<div style="margin-top:8px;"><strong>' . htmlspecialcharsbx($oldLabel) . ':</strong><pre style="white-space:pre-wrap; margin:4px 0 8px;">'
+        . htmlspecialcharsbx($renderValue($oldValue))
+        . '</pre></div><div><strong>' . htmlspecialcharsbx($newLabel) . ':</strong><pre style="white-space:pre-wrap; margin:4px 0 0;">'
+        . htmlspecialcharsbx($renderValue($newValue))
+        . '</pre></div></details>';
+};
+
 $flattenData = static function (mixed $value, string $prefix = '') use (&$flattenData): array {
     if (!is_array($value)) {
         return $prefix === '' ? [] : [$prefix => $value];
@@ -434,21 +450,6 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
             <div style="margin-bottom:12px;">Товар #<?= (int) $compareTask['PRODUCT_ID'] ?>, статус: <?= $renderStatus((string) $compareTask['STATUS']) ?></div>
             <?php if (!empty($compareData['summary'])): ?><div class="adm-info-message-wrap"><div class="adm-info-message"><?= htmlspecialcharsbx((string) $compareData['summary']) ?></div></div><?php endif; ?>
             <div class="adm-detail-title">Что ответил сервис</div>
-            <table class="adm-list-table" width="100%" style="margin-bottom:16px;">
-                <thead><tr class="adm-list-table-header"><td width="32%">Поле</td><td width="68%">Что было и что пришло</td></tr></thead>
-                <tbody>
-                <?php foreach ($responsePreviewRows as $row): ?>
-                    <tr class="adm-list-table-row">
-                        <td class="adm-list-table-cell">
-                            <strong><?= htmlspecialcharsbx((string) $row['label']) ?></strong><br>
-                            <span style="color:#666;"><?= htmlspecialcharsbx((string) $row['path']) ?></span>
-                        </td>
-                        <td class="adm-list-table-cell"><?= $row['summary_html'] ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                <?php if ($responsePreviewRows === []): ?><tr><td class="adm-list-table-cell" colspan="2">Не удалось подготовить человекочитаемое представление ответа.</td></tr><?php endif; ?>
-                </tbody>
-            </table>
             <details open style="margin-bottom:16px;">
                 <summary>Точный ответ сервиса</summary>
                 <textarea rows="18" readonly aria-label="Точный ответ сервиса" style="width:100%;box-sizing:border-box;"><?= htmlspecialcharsbx((string) ($compareTask['RESPONSE_BODY'] ?? '')) ?></textarea>
@@ -485,7 +486,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     <input type="hidden" name="action" value="apply">
                     <input type="hidden" name="task_id" value="<?= (int) $compareTask['ID'] ?>">
                     <table class="adm-list-table" width="100%">
-                        <thead><tr class="adm-list-table-header"><td width="6%">Применить</td><td width="24%">Поле</td><td width="30%">Было</td><td width="40%">Изменение</td></tr></thead>
+                        <thead><tr class="adm-list-table-header"><td width="6%">Применить</td><td width="24%">Поле</td><td width="70%">Ответ сервиса / редактор</td></tr></thead>
                         <tbody>
                         <?php foreach ((array) ($compareData['comparison'] ?? []) as $index => $row): ?>
                             <?php
@@ -507,8 +508,10 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                                     <strong><?= (int) $index + 1 ?>. <?= htmlspecialcharsbx($getFieldLabel($fieldCatalog, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), (string) ($row['target_type'] ?? ''), (string) ($row['target_code'] ?? ''))) ?></strong><br>
                                     <span style="color:#666;"><?= htmlspecialcharsbx((string) ($row['target_code'] ?? '')) ?></span>
                                 </td>
-                                <td class="adm-list-table-cell" style="vertical-align:top;"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['old_value'] ?? null)) ?></pre></td>
-                                <td class="adm-list-table-cell" style="vertical-align:top;"><?= $renderEditableControl($inputName, $inputId, $editedValue, $controlConfig) ?></td>
+                                <td class="adm-list-table-cell" style="vertical-align:top;">
+                                    <?= $renderEditableControl($inputName, $inputId, $editedValue, $controlConfig) ?>
+                                    <?= $renderComparisonDetails('Показать что было', 'В карточке', $row['old_value'] ?? null, 'Ответ сервиса', $row['new_value'] ?? null) ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
@@ -516,7 +519,26 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     <p><button type="submit" class="adm-btn-save">Подтвердить и сохранить</button></p>
                 </form>
             <?php else: ?>
-                <div class="adm-info-message-wrap"><div class="adm-info-message">Автоматически сопоставленных изменений нет. Полный ответ сервиса и отправленный запрос уже раскрыты выше, чтобы было видно, что именно пришло.</div></div>
+                <?php if ($responsePreviewRows !== []): ?>
+                    <table class="adm-list-table" width="100%" style="margin-bottom:16px;">
+                        <thead><tr class="adm-list-table-header"><td width="32%">Поле</td><td width="68%">Ответ сервиса</td></tr></thead>
+                        <tbody>
+                        <?php foreach ($responsePreviewRows as $row): ?>
+                            <tr class="adm-list-table-row">
+                                <td class="adm-list-table-cell">
+                                    <strong><?= htmlspecialcharsbx((string) $row['label']) ?></strong><br>
+                                    <span style="color:#666;"><?= htmlspecialcharsbx((string) $row['path']) ?></span>
+                                </td>
+                                <td class="adm-list-table-cell">
+                                    <pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['new_value'] ?? null)) ?></pre>
+                                    <?= $renderComparisonDetails('Показать что было', 'В карточке', $row['old_value'] ?? null, 'Ответ сервиса', $row['new_value'] ?? null) ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+                <div class="adm-info-message-wrap"><div class="adm-info-message">Автоматически сопоставленных изменений нет. Ответ сервиса и отправленный запрос раскрыты выше, а по кнопке «Показать что было» видно исходные данные товара для сравнения.</div></div>
             <?php endif; ?>
             <form method="post" style="margin-bottom:16px;">
                 <?= bitrix_sessid_post() ?>
