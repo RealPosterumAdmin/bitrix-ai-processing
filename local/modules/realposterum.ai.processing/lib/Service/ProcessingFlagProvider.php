@@ -18,6 +18,10 @@ final class ProcessingFlagProvider
      */
     public function findMarkedProducts(int $limit = 100): array
     {
+        if ($this->settings->getFlagSource() !== 'property') {
+            return [];
+        }
+
         $iblockId = $this->settings->getCatalogIblockId();
         $propertyCode = $this->settings->getNeedProcessingPropertyCode();
         if ($iblockId <= 0 || $propertyCode === '') {
@@ -28,12 +32,15 @@ final class ProcessingFlagProvider
             throw new RuntimeException('Не удалось подключить модуль iblock.');
         }
 
+        $property = $this->getRequiredProperty($iblockId, $propertyCode);
+        $propertyId = (int) ($property['ID'] ?? 0);
+        $propertyKey = (string) (($property['CODE'] ?? '') ?: $propertyId);
         $rows = [];
         $result = \CIBlockElement::GetList(
             ['ID' => 'DESC'],
             [
                 'IBLOCK_ID' => $iblockId,
-                '!PROPERTY_' . $propertyCode => false,
+                '!PROPERTY_' . $propertyId => false,
             ],
             false,
             ['nTopCount' => $limit],
@@ -41,9 +48,19 @@ final class ProcessingFlagProvider
         );
 
         while ($row = $result->GetNext(false, false)) {
-            if (is_array($row)) {
-                $rows[] = $row;
+            if (!is_array($row)) {
+                continue;
             }
+
+            $flagValue = $this->getElementPropertyValue($iblockId, (int) $row['ID'], $propertyId);
+            if ($this->isEmptyValue($flagValue)) {
+                continue;
+            }
+
+            $row['FLAG_PROPERTY_CODE'] = $propertyKey;
+            $row['FLAG_PROPERTY_NAME'] = (string) ($property['NAME'] ?? $propertyKey);
+            $row['FLAG_VALUE'] = $flagValue;
+            $rows[] = $row;
         }
 
         return $rows;
@@ -66,8 +83,20 @@ final class ProcessingFlagProvider
             throw new RuntimeException('Не удалось подключить модуль iblock.');
         }
 
-        $property = $this->getPropertyMetadata($iblockId, $propertyCode);
-        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$propertyCode => $this->buildEmptyValue($property)]);
+        $property = $this->getRequiredProperty($iblockId, $propertyCode);
+        $propertyId = (int) ($property['ID'] ?? 0);
+        $propertyKey = (string) (($property['CODE'] ?? '') ?: $propertyId);
+        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$propertyKey => $this->buildEmptyValue($property)]);
+
+        $remainingValue = $this->getElementPropertyValue($iblockId, $productId, $propertyId);
+        if (!$this->isEmptyValue($remainingValue)) {
+            throw new RuntimeException(sprintf(
+                'Не удалось снять флаг %s у товара #%d. Текущее значение: %s',
+                $propertyKey,
+                $productId,
+                $this->stringifyValue($remainingValue)
+            ));
+        }
     }
 
     /**
@@ -113,6 +142,54 @@ final class ProcessingFlagProvider
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function getRequiredProperty(int $iblockId, string $propertyCode): array
+    {
+        $property = $this->getPropertyMetadata($iblockId, $propertyCode);
+        if ($property === null) {
+            throw new RuntimeException(sprintf(
+                'Свойство флага %s не найдено в инфоблоке #%d.',
+                $propertyCode,
+                $iblockId
+            ));
+        }
+
+        return $property;
+    }
+
+    private function getElementPropertyValue(int $iblockId, int $productId, int $propertyId): mixed
+    {
+        $result = \CIBlockElement::GetProperty(
+            $iblockId,
+            $productId,
+            ['SORT' => 'ASC', 'ID' => 'ASC'],
+            ['ID' => $propertyId]
+        );
+
+        $values = [];
+        $isMultiple = false;
+        while ($property = $result->Fetch()) {
+            if (!is_array($property)) {
+                continue;
+            }
+
+            $isMultiple = (string) ($property['MULTIPLE'] ?? 'N') === 'Y';
+            $value = $property['VALUE_ENUM'] ?? $property['VALUE'] ?? null;
+            if ($isMultiple) {
+                if (!$this->isEmptyValue($value)) {
+                    $values[] = $value;
+                }
+                continue;
+            }
+
+            return $value;
+        }
+
+        return $isMultiple ? $values : null;
+    }
+
+    /**
      * @param array<string, mixed>|null $property
      */
     private function buildEmptyValue(?array $property): mixed
@@ -130,5 +207,19 @@ final class ProcessingFlagProvider
         }
 
         return false;
+    }
+
+    private function isEmptyValue(mixed $value): bool
+    {
+        return $value === null || $value === '' || $value === false || $value === [];
+    }
+
+    private function stringifyValue(mixed $value): string
+    {
+        if (is_scalar($value) || $value === null) {
+            return (string) $value;
+        }
+
+        return (string) json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 }
