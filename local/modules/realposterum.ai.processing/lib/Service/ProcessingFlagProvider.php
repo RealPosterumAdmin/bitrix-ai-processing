@@ -33,12 +33,11 @@ final class ProcessingFlagProvider
             ['ID' => 'DESC'],
             [
                 'IBLOCK_ID' => $iblockId,
-                'ACTIVE' => 'Y',
-                'PROPERTY_' . $propertyCode => ['Y', '1', 'Да'],
+                '!PROPERTY_' . $propertyCode => false,
             ],
             false,
             ['nTopCount' => $limit],
-            ['ID', 'IBLOCK_ID', 'NAME', 'TIMESTAMP_X']
+            ['ID', 'IBLOCK_ID', 'NAME', 'TIMESTAMP_X', 'ACTIVE']
         );
 
         while ($row = $result->GetNext(false, false)) {
@@ -50,14 +49,14 @@ final class ProcessingFlagProvider
         return $rows;
     }
 
-    public function clearFlag(int $productId): void
+    public function clearFlag(int $productId, ?int $iblockId = null): void
     {
         $productId = max(0, $productId);
         if ($productId <= 0 || $this->settings->getFlagSource() !== 'property') {
             return;
         }
 
-        $iblockId = $this->settings->getCatalogIblockId();
+        $iblockId = $iblockId !== null ? max(0, $iblockId) : $this->settings->getCatalogIblockId();
         $propertyCode = $this->settings->getNeedProcessingPropertyCode();
         if ($iblockId <= 0 || $propertyCode === '') {
             return;
@@ -74,7 +73,7 @@ final class ProcessingFlagProvider
     /**
      * @param array<int, int|string> $productIds
      */
-    public function clearFlags(array $productIds): int
+    public function clearFlags(array $productIds, ?int $iblockId = null): int
     {
         $cleared = 0;
         foreach ($productIds as $productId) {
@@ -83,7 +82,7 @@ final class ProcessingFlagProvider
                 continue;
             }
 
-            $this->clearFlag($normalizedId);
+            $this->clearFlag($normalizedId, $iblockId);
             $cleared++;
         }
 
@@ -130,6 +129,6 @@ final class ProcessingFlagProvider
             return [];
         }
 
-        return '';
+        return false;
     }
 }
