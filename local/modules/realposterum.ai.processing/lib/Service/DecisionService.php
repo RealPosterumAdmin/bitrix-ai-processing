@@ -14,14 +14,16 @@ final class DecisionService
     public function __construct(
         private ProcessingTaskRepository $taskRepository,
         private ModuleSettings $settings,
+        private FieldCatalog $fieldCatalog,
         private LogService $logService
     ) {
     }
 
     /**
      * @param array<int, string> $selectedKeys
+     * @param array<string, mixed> $editedValues
      */
-    public function approve(int $taskId, array $selectedKeys): void
+    public function approve(int $taskId, array $selectedKeys, array $editedValues = []): void
     {
         $task = $this->taskRepository->findById($taskId);
         if ($task === null) {
@@ -38,6 +40,11 @@ final class DecisionService
         }
 
         $selectedLookup = array_fill_keys($selectedKeys, true);
+        $editedLookup = [];
+        foreach ($editedValues as $key => $value) {
+            $editedLookup[(string) $key] = $value;
+        }
+
         $elementFields = [];
         $propertyValues = [];
         foreach ($parsed['comparison'] as $row) {
@@ -51,12 +58,10 @@ final class DecisionService
 
             $targetType = (string) ($row['target_type'] ?? '');
             $targetCode = (string) ($row['target_code'] ?? '');
-            $newValue = $row['new_value'] ?? null;
-            if ($targetType === 'field') {
-                $elementFields[$targetCode] = $newValue;
-            } elseif ($targetType === 'property') {
-                $propertyValues[$targetCode] = $newValue;
-            }
+            $newValue = $this->resolveNewValue($row['new_value'] ?? null, $editedLookup[$key] ?? null, array_key_exists($key, $editedLookup));
+            $preparedValue = $this->fieldCatalog->prepareValueForSave((int) $task['SOURCE_IBLOCK_ID'], $targetType, $targetCode, $newValue);
+            $elementFields = array_merge($elementFields, $preparedValue['fields']);
+            $propertyValues = array_merge($propertyValues, $preparedValue['properties']);
         }
 
         if ($elementFields === [] && $propertyValues === []) {
@@ -128,7 +133,19 @@ final class DecisionService
         }
 
         $this->ensureIblockModule();
-        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$code => false]);
+        $property = $this->fieldCatalog->getPropertyMetadata($iblockId, $code);
+        $emptyValue = false;
+        if (is_array($property)) {
+            if ((string) ($property['PROPERTY_TYPE'] ?? '') === 'S' && strtoupper((string) ($property['USER_TYPE'] ?? '')) === 'HTML') {
+                $emptyValue = ['VALUE' => ['TEXT' => '', 'TYPE' => 'html']];
+            } elseif ((string) ($property['MULTIPLE'] ?? 'N') === 'Y') {
+                $emptyValue = [];
+            } else {
+                $emptyValue = '';
+            }
+        }
+
+        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$code => $emptyValue]);
     }
 
     private function ensureIblockModule(): void
@@ -136,5 +153,25 @@ final class DecisionService
         if (!Loader::includeModule('iblock')) {
             throw new RuntimeException('Не удалось подключить модуль iblock.');
         }
+    }
+
+    private function resolveNewValue(mixed $defaultValue, mixed $editedValue, bool $hasEditedValue): mixed
+    {
+        if (!$hasEditedValue) {
+            return $defaultValue;
+        }
+
+        if (is_array($editedValue)) {
+            return $editedValue;
+        }
+
+        if (is_array($defaultValue) && is_string($editedValue)) {
+            $decoded = json_decode($editedValue, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $decoded;
+            }
+        }
+
+        return $editedValue;
     }
 }

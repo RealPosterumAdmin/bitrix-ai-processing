@@ -43,6 +43,7 @@ $settings = new ModuleSettings($moduleId);
 $taskRepository = new ProcessingTaskRepository();
 $logRepository = new ProcessingLogRepository();
 $logService = new LogService($logRepository);
+$htmlEditorEnabled = Loader::includeModule('fileman') && function_exists('CFileMan::AddHTMLEditorFrame');
 $processingService = new ProcessingService(
     $taskRepository,
     new ProductDataExtractor(),
@@ -52,10 +53,11 @@ $processingService = new ProcessingService(
     $settings,
     $logService
 );
-$decisionService = new DecisionService($taskRepository, $settings, $logService);
 $flagProvider = new ProcessingFlagProvider($settings);
 $fieldCatalog = new FieldCatalog();
+$decisionService = new DecisionService($taskRepository, $settings, $fieldCatalog, $logService);
 $pathResolver = new JsonPathResolver();
+$submittedEditedValues = is_array($_POST['edited_values'] ?? null) ? (array) $_POST['edited_values'] : [];
 
 try {
     if (($_GET['action'] ?? '') === 'quick_process' && check_bitrix_sessid()) {
@@ -86,7 +88,11 @@ try {
                 $processingService->processTask((int) ($_POST['task_id'] ?? 0));
                 $message = 'Задача обработана AI.';
             } elseif ($action === 'apply') {
-                $decisionService->approve((int) ($_POST['task_id'] ?? 0), array_map('strval', (array) ($_POST['selected_fields'] ?? [])));
+                $decisionService->approve(
+                    (int) ($_POST['task_id'] ?? 0),
+                    array_map('strval', (array) ($_POST['selected_fields'] ?? [])),
+                    $submittedEditedValues
+                );
                 $message = 'Изменения сохранены в товар.';
             } elseif ($action === 'apply_default') {
                 foreach ((array) ($_POST['task_ids'] ?? []) as $taskId) {
@@ -128,6 +134,35 @@ $renderValue = static function (mixed $value): string {
 
 $renderStatus = static function (string $status): string {
     return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' . htmlspecialcharsbx(TaskStatus::getColor($status)) . ';color:#fff;">' . htmlspecialcharsbx(TaskStatus::getLabel($status)) . '</span>';
+};
+
+$getEditableValue = static function (mixed $value) use ($renderValue): string {
+    return is_string($value) ? $value : $renderValue($value);
+};
+
+$renderEditableControl = static function (
+    string $name,
+    string $inputId,
+    mixed $value,
+    array $config
+) use ($getEditableValue, $htmlEditorEnabled): string {
+    $preparedValue = $getEditableValue($value);
+    $escapedName = htmlspecialcharsbx($name);
+    $escapedId = htmlspecialcharsbx($inputId);
+    $type = (string) ($config['type'] ?? 'textarea');
+
+    if ($type === 'html' && $htmlEditorEnabled) {
+        ob_start();
+        CFileMan::AddHTMLEditorFrame($name, $preparedValue, $inputId, 'html', ['width' => '100%', 'height' => 240]);
+        return (string) ob_get_clean();
+    }
+
+    if ($type === 'text') {
+        return '<input type="text" id="' . $escapedId . '" name="' . $escapedName . '" value="' . htmlspecialcharsbx($preparedValue) . '" style="width:100%;box-sizing:border-box;">';
+    }
+
+    $rows = $type === 'html' ? 10 : 6;
+    return '<textarea id="' . $escapedId . '" name="' . $escapedName . '" rows="' . $rows . '" style="width:100%;box-sizing:border-box;">' . htmlspecialcharsbx($preparedValue) . '</textarea>';
 };
 
 $flattenData = static function (mixed $value, string $prefix = '') use (&$flattenData): array {
@@ -346,8 +381,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
     <div class="adm-info-message-wrap"><div class="adm-info-message<?= $messageType === 'error' ? ' adm-info-message-red' : '' ?>"><?= htmlspecialcharsbx($message) ?></div></div>
 <?php endif; ?>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
-    <div>
+<div style="max-width:1600px;margin:0 auto;">
+    <div style="margin-bottom:24px;">
         <div class="adm-detail-title">Товары с флагом <?= htmlspecialcharsbx($settings->getNeedProcessingPropertyCode()) ?></div>
         <form method="post">
             <?= bitrix_sessid_post() ?>
@@ -383,7 +418,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
         </form>
     </div>
 
-    <div>
+    <div style="margin-bottom:24px;">
         <?php if (is_array($compareTask) && is_array($compareData)): ?>
             <div class="adm-detail-title">Сравнение по задаче #<?= (int) $compareTask['ID'] ?></div>
             <div style="margin-bottom:12px;">Товар #<?= (int) $compareTask['PRODUCT_ID'] ?>, статус: <?= $renderStatus((string) $compareTask['STATUS']) ?></div>
@@ -406,11 +441,11 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
             </table>
             <details style="margin-bottom:16px;">
                 <summary>Точный ответ сервиса</summary>
-                <textarea rows="18" cols="90" readonly aria-label="Точный ответ сервиса"><?= htmlspecialcharsbx((string) ($compareTask['RESPONSE_BODY'] ?? '')) ?></textarea>
+                <textarea rows="18" readonly aria-label="Точный ответ сервиса" style="width:100%;box-sizing:border-box;"><?= htmlspecialcharsbx((string) ($compareTask['RESPONSE_BODY'] ?? '')) ?></textarea>
                 <?php if (is_array($responseContent)): ?>
                     <div style="margin-top:12px;">
                         <div style="font-weight:600; margin-bottom:6px;">Распарсенный JSON ответа</div>
-                        <textarea rows="18" cols="90" readonly aria-label="Распарсенный JSON ответа"><?= htmlspecialcharsbx((string) json_encode($responseContent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></textarea>
+                        <textarea rows="18" readonly aria-label="Распарсенный JSON ответа" style="width:100%;box-sizing:border-box;"><?= htmlspecialcharsbx((string) json_encode($responseContent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></textarea>
                     </div>
                 <?php endif; ?>
             </details>
@@ -432,21 +467,37 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     </tbody>
                 </table>
                 <div style="font-weight:600; margin-bottom:6px;">Точный запрос</div>
-                <textarea rows="14" cols="90" readonly aria-label="Что отправили в AI"><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea>
+                <textarea rows="14" readonly aria-label="Что отправили в AI" style="width:100%;box-sizing:border-box;"><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea>
             </details>
             <form method="post">
                 <?= bitrix_sessid_post() ?>
                 <input type="hidden" name="action" value="apply">
                 <input type="hidden" name="task_id" value="<?= (int) $compareTask['ID'] ?>">
                 <table class="adm-list-table" width="100%">
-                    <thead><tr class="adm-list-table-header"><td>Применить</td><td>Поле</td><td>Было</td><td>Предлагает ИИ</td></tr></thead>
+                    <thead><tr class="adm-list-table-header"><td width="6%">Применить</td><td width="24%">Поле</td><td width="30%">Было</td><td width="40%">Изменение</td></tr></thead>
                     <tbody>
-                    <?php foreach ((array) ($compareData['comparison'] ?? []) as $row): ?>
+                    <?php foreach ((array) ($compareData['comparison'] ?? []) as $index => $row): ?>
+                        <?php
+                        $comparisonKey = (string) ($row['key'] ?? '');
+                        $controlConfig = $fieldCatalog->getInputControl(
+                            (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0),
+                            (string) ($row['target_type'] ?? ''),
+                            (string) ($row['target_code'] ?? '')
+                        );
+                        $editedValue = array_key_exists($comparisonKey, $submittedEditedValues)
+                            ? $submittedEditedValues[$comparisonKey]
+                            : ($row['new_value'] ?? null);
+                        $inputName = 'edited_values[' . $comparisonKey . ']';
+                        $inputId = 'edited_' . preg_replace('/[^a-z0-9_]+/i', '_', $comparisonKey);
+                        ?>
                         <tr class="adm-list-table-row">
-                            <td class="adm-list-table-cell"><input type="checkbox" name="selected_fields[]" value="<?= htmlspecialcharsbx((string) $row['key']) ?>"<?= in_array((string) $row['key'], (array) ($compareData['selected_by_default'] ?? []), true) ? ' checked' : '' ?>></td>
-                            <td class="adm-list-table-cell"><?= htmlspecialcharsbx($getFieldLabel($fieldCatalog, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), (string) ($row['target_type'] ?? ''), (string) ($row['target_code'] ?? ''))) ?></td>
-                            <td class="adm-list-table-cell"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['old_value'] ?? null)) ?></pre></td>
-                            <td class="adm-list-table-cell"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['new_value'] ?? null)) ?></pre></td>
+                            <td class="adm-list-table-cell" style="vertical-align:top;"><input type="checkbox" name="selected_fields[]" value="<?= htmlspecialcharsbx($comparisonKey) ?>"<?= in_array($comparisonKey, (array) ($compareData['selected_by_default'] ?? []), true) ? ' checked' : '' ?>></td>
+                            <td class="adm-list-table-cell" style="vertical-align:top;">
+                                <strong><?= (int) $index + 1 ?>. <?= htmlspecialcharsbx($getFieldLabel($fieldCatalog, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), (string) ($row['target_type'] ?? ''), (string) ($row['target_code'] ?? ''))) ?></strong><br>
+                                <span style="color:#666;"><?= htmlspecialcharsbx((string) ($row['target_code'] ?? '')) ?></span>
+                            </td>
+                            <td class="adm-list-table-cell" style="vertical-align:top;"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['old_value'] ?? null)) ?></pre></td>
+                            <td class="adm-list-table-cell" style="vertical-align:top;"><?= $renderEditableControl($inputName, $inputId, $editedValue, $controlConfig) ?></td>
                         </tr>
                     <?php endforeach; ?>
                     <?php if (empty($compareData['comparison'])): ?><tr><td class="adm-list-table-cell" colspan="4">Изменений для сохранения нет, но человекочитаемый ответ сервиса показан выше.</td></tr><?php endif; ?>
@@ -471,8 +522,6 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
             <div class="adm-info-message-wrap"><div class="adm-info-message">Выберите задачу в блоке «Ожидают подтверждения», чтобы открыть сравнение old/new.</div></div>
         <?php endif; ?>
     </div>
-</div>
-
 <div class="adm-detail-title">Задачи в очереди</div>
 <table class="adm-list-table" width="100%">
     <thead><tr class="adm-list-table-header"><td>ID</td><td>Товар</td><td>Статус</td><td>Последняя попытка</td><td>Ошибка</td><td>Действия</td></tr></thead>
@@ -529,5 +578,6 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
     <?php if ($errorTasks === []): ?><tr><td class="adm-list-table-cell" colspan="5">Ошибок нет.</td></tr><?php endif; ?>
     </tbody>
 </table>
+</div>
 <?php
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog_admin.php';
