@@ -11,6 +11,7 @@ use RealPosterum\AiProcessing\Infrastructure\BitrixHttpClient;
 use RealPosterum\AiProcessing\Repository\ProcessingLogRepository;
 use RealPosterum\AiProcessing\Repository\ProcessingTaskRepository;
 use RealPosterum\AiProcessing\Service\DecisionService;
+use RealPosterum\AiProcessing\Service\FieldCatalog;
 use RealPosterum\AiProcessing\Service\JsonPathResolver;
 use RealPosterum\AiProcessing\Service\LogService;
 use RealPosterum\AiProcessing\Service\ModuleSettings;
@@ -53,6 +54,8 @@ $processingService = new ProcessingService(
 );
 $decisionService = new DecisionService($taskRepository, $settings, $logService);
 $flagProvider = new ProcessingFlagProvider($settings);
+$fieldCatalog = new FieldCatalog();
+$pathResolver = new JsonPathResolver();
 
 try {
     if (($_GET['action'] ?? '') === 'quick_process' && check_bitrix_sessid()) {
@@ -61,36 +64,44 @@ try {
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
-        $action = (string) ($_POST['action'] ?? '');
-        if ($action === 'queue_manual') {
-            $taskId = $processingService->queueProduct((int) ($_POST['product_id'] ?? 0), (int) ($_POST['iblock_id'] ?? 0));
-            $message = 'Задача поставлена в очередь, ID: ' . $taskId;
-        } elseif ($action === 'bulk_queue_process') {
-            $processed = 0;
-            foreach ((array) ($_POST['product_ids'] ?? []) as $productId) {
-                $processingService->queueAndProcess((int) $productId, $settings->getCatalogIblockId());
-                $processed++;
+        if (isset($_POST['clear_product_id'])) {
+            $flagProvider->clearFlag((int) $_POST['clear_product_id']);
+            $message = 'Флаг снят у товара.';
+        } else {
+            $action = (string) ($_POST['action'] ?? '');
+            if ($action === 'queue_manual') {
+                $taskId = $processingService->queueProduct((int) ($_POST['product_id'] ?? 0), (int) ($_POST['iblock_id'] ?? 0));
+                $message = 'Задача поставлена в очередь, ID: ' . $taskId;
+            } elseif ($action === 'bulk_queue_process') {
+                $processed = 0;
+                foreach ((array) ($_POST['product_ids'] ?? []) as $productId) {
+                    $processingService->queueAndProcess((int) $productId, $settings->getCatalogIblockId());
+                    $processed++;
+                }
+                $message = 'На обработку отправлено товаров: ' . $processed;
+            } elseif ($action === 'clear_product_flags') {
+                $cleared = $flagProvider->clearFlags((array) ($_POST['product_ids'] ?? []));
+                $message = 'Флаг снят у товаров: ' . $cleared;
+            } elseif ($action === 'process') {
+                $processingService->processTask((int) ($_POST['task_id'] ?? 0));
+                $message = 'Задача обработана AI.';
+            } elseif ($action === 'apply') {
+                $decisionService->approve((int) ($_POST['task_id'] ?? 0), array_map('strval', (array) ($_POST['selected_fields'] ?? [])));
+                $message = 'Изменения сохранены в товар.';
+            } elseif ($action === 'apply_default') {
+                foreach ((array) ($_POST['task_ids'] ?? []) as $taskId) {
+                    $decisionService->approveDefault((int) $taskId);
+                }
+                $message = 'Выбранные ответы применены по умолчанию.';
+            } elseif ($action === 'reject') {
+                $decisionService->reject((int) ($_POST['task_id'] ?? 0));
+                $message = 'Ответ отклонён.';
+            } elseif ($action === 'bulk_reject') {
+                foreach ((array) ($_POST['task_ids'] ?? []) as $taskId) {
+                    $decisionService->reject((int) $taskId);
+                }
+                $message = 'Выбранные ответы отклонены.';
             }
-            $message = 'На обработку отправлено товаров: ' . $processed;
-        } elseif ($action === 'process') {
-            $processingService->processTask((int) ($_POST['task_id'] ?? 0));
-            $message = 'Задача обработана AI.';
-        } elseif ($action === 'apply') {
-            $decisionService->approve((int) ($_POST['task_id'] ?? 0), array_map('strval', (array) ($_POST['selected_fields'] ?? [])));
-            $message = 'Изменения сохранены в товар.';
-        } elseif ($action === 'apply_default') {
-            foreach ((array) ($_POST['task_ids'] ?? []) as $taskId) {
-                $decisionService->approveDefault((int) $taskId);
-            }
-            $message = 'Выбранные ответы применены по умолчанию.';
-        } elseif ($action === 'reject') {
-            $decisionService->reject((int) ($_POST['task_id'] ?? 0));
-            $message = 'Ответ отклонён.';
-        } elseif ($action === 'bulk_reject') {
-            foreach ((array) ($_POST['task_ids'] ?? []) as $taskId) {
-                $decisionService->reject((int) $taskId);
-            }
-            $message = 'Выбранные ответы отклонены.';
         }
     }
 } catch (Throwable $exception) {
@@ -119,6 +130,215 @@ $renderStatus = static function (string $status): string {
     return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' . htmlspecialcharsbx(TaskStatus::getColor($status)) . ';color:#fff;">' . htmlspecialcharsbx(TaskStatus::getLabel($status)) . '</span>';
 };
 
+$flattenData = static function (mixed $value, string $prefix = '') use (&$flattenData): array {
+    if (!is_array($value)) {
+        return $prefix === '' ? [] : [$prefix => $value];
+    }
+
+    if ($value === []) {
+        return $prefix === '' ? [] : [$prefix => []];
+    }
+
+    $rows = [];
+    foreach ($value as $key => $child) {
+        $path = $prefix === ''
+            ? (string) $key
+            : (is_int($key) ? $prefix . '[' . $key . ']' : $prefix . '.' . $key);
+
+        if (is_array($child)) {
+            foreach ($flattenData($child, $path) as $childPath => $childValue) {
+                $rows[$childPath] = $childValue;
+            }
+            continue;
+        }
+
+        $rows[$path] = $child;
+    }
+
+    return $rows;
+};
+
+$getCatalogLabels = static function (FieldCatalog $catalog, int $iblockId, string $type): array {
+    try {
+        return match ($type) {
+            'field' => $catalog->getElementFields(),
+            'property' => $catalog->getPropertyFields($iblockId),
+            'computed' => $catalog->getComputedFields(),
+            default => [],
+        };
+    } catch (Throwable) {
+        return [];
+    }
+};
+
+$getFieldLabel = static function (FieldCatalog $catalog, int $iblockId, string $type, string $code) use ($getCatalogLabels): string {
+    $labels = $getCatalogLabels($catalog, $iblockId, $type);
+    return $labels[$code] ?? $code;
+};
+
+$getSnapshotValue = static function (?array $snapshotData, string $type, string $code): mixed {
+    if (!is_array($snapshotData)) {
+        return null;
+    }
+
+    return match ($type) {
+        'field' => is_array($snapshotData['fields'] ?? null) ? ($snapshotData['fields'][$code] ?? null) : null,
+        'property' => is_array($snapshotData['properties'] ?? null) ? ($snapshotData['properties'][$code] ?? null) : null,
+        'computed' => is_array($snapshotData['computed'] ?? null) ? ($snapshotData['computed'][$code] ?? null) : null,
+        default => null,
+    };
+};
+
+$buildMappedPreviewRows = static function (
+    array $mappings,
+    ?array $snapshotData,
+    array $data,
+    int $iblockId,
+    string $typeKey,
+    string $codeKey
+) use ($pathResolver, $getFieldLabel, $getSnapshotValue, $flattenData, $renderValue, $fieldCatalog): array {
+    $rows = [];
+    $usedPaths = [];
+
+    foreach ($mappings as $mapping) {
+        if (!is_array($mapping)) {
+            continue;
+        }
+
+        $path = trim((string) ($mapping['json_path'] ?? ''));
+        $type = trim((string) ($mapping[$typeKey] ?? ''));
+        $code = trim((string) ($mapping[$codeKey] ?? ''));
+        if ($path === '' || $type === '' || $code === '' || !$pathResolver->exists($data, $path)) {
+            continue;
+        }
+
+        $usedPaths[$path] = true;
+        $rows[] = [
+            'label' => $getFieldLabel($fieldCatalog, $iblockId, $type, $code),
+            'path' => $path,
+            'old_value' => $getSnapshotValue($snapshotData, $type, $code),
+            'new_value' => $pathResolver->get($data, $path),
+        ];
+    }
+
+    foreach ($flattenData($data) as $path => $value) {
+        if (isset($usedPaths[$path])) {
+            continue;
+        }
+
+        $rows[] = [
+            'label' => $path,
+            'path' => $path,
+            'old_value' => null,
+            'new_value' => $value,
+        ];
+    }
+
+    usort(
+        $rows,
+        static fn (array $left, array $right): int => strcmp((string) $left['label'], (string) $right['label'])
+    );
+
+    return array_map(
+        static fn (array $row): array => $row + [
+            'summary_html' => '<div><strong>Было:</strong> <pre style="white-space:pre-wrap; margin:4px 0 8px;">'
+                . htmlspecialcharsbx($renderValue($row['old_value'] ?? null))
+                . '</pre></div><div><strong>Пришло:</strong> <pre style="white-space:pre-wrap; margin:4px 0 0;">'
+                . htmlspecialcharsbx($renderValue($row['new_value'] ?? null))
+                . '</pre></div>',
+        ],
+        $rows
+    );
+};
+
+$buildRequestPreviewRows = static function (
+    array $mappings,
+    ?array $snapshotData,
+    array $payloadData,
+    int $iblockId
+) use ($pathResolver, $getFieldLabel, $getSnapshotValue, $flattenData, $renderValue, $fieldCatalog): array {
+    $rows = [];
+    $usedPaths = [];
+
+    foreach ($mappings as $mapping) {
+        if (!is_array($mapping)) {
+            continue;
+        }
+
+        $path = trim((string) ($mapping['json_path'] ?? ''));
+        $type = trim((string) ($mapping['source_type'] ?? ''));
+        $code = trim((string) ($mapping['source_code'] ?? ''));
+        if ($path === '' || $type === '' || $code === '' || !$pathResolver->exists($payloadData, $path)) {
+            continue;
+        }
+
+        $usedPaths[$path] = true;
+        $rows[] = [
+            'label' => $getFieldLabel($fieldCatalog, $iblockId, $type, $code),
+            'path' => $path,
+            'old_value' => $getSnapshotValue($snapshotData, $type, $code),
+            'new_value' => $pathResolver->get($payloadData, $path),
+        ];
+    }
+
+    foreach ($flattenData($payloadData) as $path => $value) {
+        if (isset($usedPaths[$path])) {
+            continue;
+        }
+
+        $rows[] = [
+            'label' => $path,
+            'path' => $path,
+            'old_value' => null,
+            'new_value' => $value,
+        ];
+    }
+
+    usort(
+        $rows,
+        static fn (array $left, array $right): int => strcmp((string) $left['label'], (string) $right['label'])
+    );
+
+    return array_map(
+        static fn (array $row): array => $row + [
+            'summary_html' => '<div><strong>В карточке:</strong> <pre style="white-space:pre-wrap; margin:4px 0 8px;">'
+                . htmlspecialcharsbx($renderValue($row['old_value'] ?? null))
+                . '</pre></div><div><strong>Отправили:</strong> <pre style="white-space:pre-wrap; margin:4px 0 0;">'
+                . htmlspecialcharsbx($renderValue($row['new_value'] ?? null))
+                . '</pre></div>',
+        ],
+        $rows
+    );
+};
+
+$compareSnapshot = is_array($compareTask)
+    ? json_decode((string) ($compareTask['SOURCE_SNAPSHOT_JSON'] ?? ''), true)
+    : null;
+$requestPayload = is_array($compareTask)
+    ? json_decode((string) ($compareTask['MAPPED_PAYLOAD_JSON'] ?? ''), true)
+    : null;
+$responseContent = is_array($compareData['content'] ?? null) ? $compareData['content'] : null;
+
+if ($responseContent === null && is_array($compareTask)) {
+    $decodedResponse = json_decode((string) ($compareTask['RESPONSE_BODY'] ?? ''), true);
+    if (is_array($decodedResponse) && $pathResolver->exists($decodedResponse, $settings->getResponseContentPath())) {
+        $resolvedContent = $pathResolver->get($decodedResponse, $settings->getResponseContentPath());
+        if (is_string($resolvedContent)) {
+            $resolvedContent = json_decode($resolvedContent, true);
+        }
+        if (is_array($resolvedContent)) {
+            $responseContent = $resolvedContent;
+        }
+    }
+}
+
+$requestPreviewRows = is_array($compareSnapshot) && is_array($requestPayload)
+    ? $buildRequestPreviewRows($settings->getOutboundMappings(), $compareSnapshot, $requestPayload, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0))
+    : [];
+$responsePreviewRows = is_array($compareSnapshot) && is_array($responseContent)
+    ? $buildMappedPreviewRows($settings->getInboundMappings(), $compareSnapshot, $responseContent, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), 'target_type', 'target_code')
+    : [];
+
 $APPLICATION->SetTitle('Очередь RealPosterum AI Processing');
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
 ?>
@@ -131,9 +351,8 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
         <div class="adm-detail-title">Товары с флагом <?= htmlspecialcharsbx($settings->getNeedProcessingPropertyCode()) ?></div>
         <form method="post">
             <?= bitrix_sessid_post() ?>
-            <input type="hidden" name="action" value="bulk_queue_process">
             <table class="adm-list-table" width="100%">
-                <thead><tr class="adm-list-table-header"><td></td><td>ID</td><td>Название</td><td>Изменён</td></tr></thead>
+                <thead><tr class="adm-list-table-header"><td></td><td>ID</td><td>Название</td><td>Изменён</td><td>Действие</td></tr></thead>
                 <tbody>
                 <?php foreach ($markedProducts as $row): ?>
                     <tr class="adm-list-table-row">
@@ -141,12 +360,15 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                         <td class="adm-list-table-cell">#<?= (int) $row['ID'] ?></td>
                         <td class="adm-list-table-cell"><?= htmlspecialcharsbx((string) $row['NAME']) ?></td>
                         <td class="adm-list-table-cell"><?= htmlspecialcharsbx((string) $row['TIMESTAMP_X']) ?></td>
+                        <td class="adm-list-table-cell">
+                            <button type="submit" class="adm-btn" name="clear_product_id" value="<?= (int) $row['ID'] ?>">Снять флаг</button>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if ($markedProducts === []): ?><tr><td class="adm-list-table-cell" colspan="4">Нет товаров с включённым флагом.</td></tr><?php endif; ?>
+                <?php if ($markedProducts === []): ?><tr><td class="adm-list-table-cell" colspan="5">Нет товаров с включённым флагом.</td></tr><?php endif; ?>
                 </tbody>
             </table>
-            <p><button type="submit" class="adm-btn-save">Отправить выбранные на обработку</button></p>
+            <p><button type="submit" class="adm-btn-save" name="action" value="bulk_queue_process">Отправить выбранные на обработку</button> <button type="submit" class="adm-btn" name="action" value="clear_product_flags">Снять флаг у выбранных</button></p>
         </form>
 
         <div class="adm-detail-title">Ручная постановка в очередь</div>
@@ -166,7 +388,52 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
             <div class="adm-detail-title">Сравнение по задаче #<?= (int) $compareTask['ID'] ?></div>
             <div style="margin-bottom:12px;">Товар #<?= (int) $compareTask['PRODUCT_ID'] ?>, статус: <?= $renderStatus((string) $compareTask['STATUS']) ?></div>
             <?php if (!empty($compareData['summary'])): ?><div class="adm-info-message-wrap"><div class="adm-info-message"><?= htmlspecialcharsbx((string) $compareData['summary']) ?></div></div><?php endif; ?>
-            <details style="margin-bottom:16px;"><summary>Что отправили</summary><textarea rows="14" cols="90" readonly aria-label="Что отправили в AI"><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea></details>
+            <div class="adm-detail-title">Что ответил сервис</div>
+            <table class="adm-list-table" width="100%" style="margin-bottom:16px;">
+                <thead><tr class="adm-list-table-header"><td width="32%">Поле</td><td width="68%">Что было и что пришло</td></tr></thead>
+                <tbody>
+                <?php foreach ($responsePreviewRows as $row): ?>
+                    <tr class="adm-list-table-row">
+                        <td class="adm-list-table-cell">
+                            <strong><?= htmlspecialcharsbx((string) $row['label']) ?></strong><br>
+                            <span style="color:#666;"><?= htmlspecialcharsbx((string) $row['path']) ?></span>
+                        </td>
+                        <td class="adm-list-table-cell"><?= $row['summary_html'] ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if ($responsePreviewRows === []): ?><tr><td class="adm-list-table-cell" colspan="2">Не удалось подготовить человекочитаемое представление ответа.</td></tr><?php endif; ?>
+                </tbody>
+            </table>
+            <details style="margin-bottom:16px;">
+                <summary>Точный ответ сервиса</summary>
+                <textarea rows="18" cols="90" readonly aria-label="Точный ответ сервиса"><?= htmlspecialcharsbx((string) ($compareTask['RESPONSE_BODY'] ?? '')) ?></textarea>
+                <?php if (is_array($responseContent)): ?>
+                    <div style="margin-top:12px;">
+                        <div style="font-weight:600; margin-bottom:6px;">Распарсенный JSON ответа</div>
+                        <textarea rows="18" cols="90" readonly aria-label="Распарсенный JSON ответа"><?= htmlspecialcharsbx((string) json_encode($responseContent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></textarea>
+                    </div>
+                <?php endif; ?>
+            </details>
+            <details style="margin-bottom:16px;">
+                <summary>Что отправили</summary>
+                <table class="adm-list-table" width="100%" style="margin:12px 0;">
+                    <thead><tr class="adm-list-table-header"><td width="32%">Поле</td><td width="68%">Что было и что отправили</td></tr></thead>
+                    <tbody>
+                    <?php foreach ($requestPreviewRows as $row): ?>
+                        <tr class="adm-list-table-row">
+                            <td class="adm-list-table-cell">
+                                <strong><?= htmlspecialcharsbx((string) $row['label']) ?></strong><br>
+                                <span style="color:#666;"><?= htmlspecialcharsbx((string) $row['path']) ?></span>
+                            </td>
+                            <td class="adm-list-table-cell"><?= $row['summary_html'] ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if ($requestPreviewRows === []): ?><tr><td class="adm-list-table-cell" colspan="2">Не удалось подготовить человекочитаемое представление запроса.</td></tr><?php endif; ?>
+                    </tbody>
+                </table>
+                <div style="font-weight:600; margin-bottom:6px;">Точный запрос</div>
+                <textarea rows="14" cols="90" readonly aria-label="Что отправили в AI"><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea>
+            </details>
             <form method="post">
                 <?= bitrix_sessid_post() ?>
                 <input type="hidden" name="action" value="apply">
@@ -177,12 +444,12 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     <?php foreach ((array) ($compareData['comparison'] ?? []) as $row): ?>
                         <tr class="adm-list-table-row">
                             <td class="adm-list-table-cell"><input type="checkbox" name="selected_fields[]" value="<?= htmlspecialcharsbx((string) $row['key']) ?>"<?= in_array((string) $row['key'], (array) ($compareData['selected_by_default'] ?? []), true) ? ' checked' : '' ?>></td>
-                            <td class="adm-list-table-cell"><?= htmlspecialcharsbx((string) $row['target_code']) ?></td>
+                            <td class="adm-list-table-cell"><?= htmlspecialcharsbx($getFieldLabel($fieldCatalog, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), (string) ($row['target_type'] ?? ''), (string) ($row['target_code'] ?? ''))) ?></td>
                             <td class="adm-list-table-cell"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['old_value'] ?? null)) ?></pre></td>
                             <td class="adm-list-table-cell"><pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['new_value'] ?? null)) ?></pre></td>
                         </tr>
                     <?php endforeach; ?>
-                    <?php if (empty($compareData['comparison'])): ?><tr><td class="adm-list-table-cell" colspan="4">В ответе нет изменений, пригодных для сохранения.</td></tr><?php endif; ?>
+                    <?php if (empty($compareData['comparison'])): ?><tr><td class="adm-list-table-cell" colspan="4">Изменений для сохранения нет, но человекочитаемый ответ сервиса показан выше.</td></tr><?php endif; ?>
                     </tbody>
                 </table>
                 <p><button type="submit" class="adm-btn-save">Подтвердить и сохранить</button></p>

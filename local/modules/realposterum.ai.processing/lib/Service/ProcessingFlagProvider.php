@@ -49,4 +49,43 @@ final class ProcessingFlagProvider
 
         return $rows;
     }
+
+    public function clearFlag(int $productId): void
+    {
+        $productId = max(0, $productId);
+        if ($productId <= 0 || $this->settings->getFlagSource() !== 'property') {
+            return;
+        }
+
+        $iblockId = $this->settings->getCatalogIblockId();
+        $propertyCode = $this->settings->getNeedProcessingPropertyCode();
+        if ($iblockId <= 0 || $propertyCode === '') {
+            return;
+        }
+
+        if (!Loader::includeModule('iblock')) {
+            throw new RuntimeException('Не удалось подключить модуль iblock.');
+        }
+
+        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$propertyCode => false]);
+    }
+
+    /**
+     * @param array<int, int|string> $productIds
+     */
+    public function clearFlags(array $productIds): int
+    {
+        $cleared = 0;
+        foreach ($productIds as $productId) {
+            $normalizedId = (int) $productId;
+            if ($normalizedId <= 0) {
+                continue;
+            }
+
+            $this->clearFlag($normalizedId);
+            $cleared++;
+        }
+
+        return $cleared;
+    }
 }
