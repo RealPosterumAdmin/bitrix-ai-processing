@@ -387,20 +387,24 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
         <form method="post">
             <?= bitrix_sessid_post() ?>
             <table class="adm-list-table" width="100%">
-                <thead><tr class="adm-list-table-header"><td></td><td>ID</td><td>Название</td><td>Изменён</td><td>Действие</td></tr></thead>
+                <thead><tr class="adm-list-table-header"><td></td><td>ID</td><td>Название</td><td>Текущее значение флага</td><td>Изменён</td><td>Действие</td></tr></thead>
                 <tbody>
                 <?php foreach ($markedProducts as $row): ?>
                     <tr class="adm-list-table-row">
                         <td class="adm-list-table-cell"><input type="checkbox" name="product_ids[]" value="<?= (int) $row['ID'] ?>"></td>
                         <td class="adm-list-table-cell">#<?= (int) $row['ID'] ?></td>
                         <td class="adm-list-table-cell"><?= htmlspecialcharsbx((string) $row['NAME']) ?></td>
+                        <td class="adm-list-table-cell">
+                            <div><strong><?= htmlspecialcharsbx((string) ($row['FLAG_PROPERTY_NAME'] ?? $row['FLAG_PROPERTY_CODE'] ?? '')) ?></strong></div>
+                            <pre style="white-space:pre-wrap; margin:4px 0 0;"><?= htmlspecialcharsbx($renderValue($row['FLAG_VALUE'] ?? null)) ?></pre>
+                        </td>
                         <td class="adm-list-table-cell"><?= htmlspecialcharsbx((string) $row['TIMESTAMP_X']) ?></td>
                         <td class="adm-list-table-cell">
                             <button type="submit" class="adm-btn" name="clear_product_id" value="<?= (int) $row['ID'] ?>">Снять флаг</button>
                         </td>
                     </tr>
                 <?php endforeach; ?>
-                <?php if ($markedProducts === []): ?><tr><td class="adm-list-table-cell" colspan="5">Нет товаров с включённым флагом.</td></tr><?php endif; ?>
+                <?php if ($markedProducts === []): ?><tr><td class="adm-list-table-cell" colspan="6">Нет товаров с включённым флагом.</td></tr><?php endif; ?>
                 </tbody>
             </table>
             <p><button type="submit" class="adm-btn-save" name="action" value="bulk_queue_process">Отправить выбранные на обработку</button> <button type="submit" class="adm-btn" name="action" value="clear_product_flags">Снять флаг у выбранных</button></p>
@@ -439,7 +443,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                 <?php if ($responsePreviewRows === []): ?><tr><td class="adm-list-table-cell" colspan="2">Не удалось подготовить человекочитаемое представление ответа.</td></tr><?php endif; ?>
                 </tbody>
             </table>
-            <details style="margin-bottom:16px;">
+            <details open style="margin-bottom:16px;">
                 <summary>Точный ответ сервиса</summary>
                 <textarea rows="18" readonly aria-label="Точный ответ сервиса" style="width:100%;box-sizing:border-box;"><?= htmlspecialcharsbx((string) ($compareTask['RESPONSE_BODY'] ?? '')) ?></textarea>
                 <?php if (is_array($responseContent)): ?>
@@ -449,7 +453,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     </div>
                 <?php endif; ?>
             </details>
-            <details style="margin-bottom:16px;">
+            <details open style="margin-bottom:16px;">
                 <summary>Что отправили</summary>
                 <table class="adm-list-table" width="100%" style="margin:12px 0;">
                     <thead><tr class="adm-list-table-header"><td width="32%">Поле</td><td width="68%">Что было и что отправили</td></tr></thead>
@@ -506,7 +510,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     <p><button type="submit" class="adm-btn-save">Подтвердить и сохранить</button></p>
                 </form>
             <?php else: ?>
-                <div class="adm-info-message-wrap"><div class="adm-info-message">Изменений для применения нет.</div></div>
+                <div class="adm-info-message-wrap"><div class="adm-info-message">Автоматически сопоставленных изменений нет. Полный ответ сервиса и отправленный запрос уже раскрыты выше, чтобы было видно, что именно пришло.</div></div>
             <?php endif; ?>
             <form method="post" style="margin-bottom:16px;">
                 <?= bitrix_sessid_post() ?>
