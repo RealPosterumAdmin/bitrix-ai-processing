@@ -119,7 +119,13 @@ $compareTaskId = (int) ($_GET['compare_id'] ?? 0);
 $compareTask = $compareTaskId > 0 ? $taskRepository->findById($compareTaskId) : null;
 $compareData = is_array($compareTask) ? json_decode((string) ($compareTask['PARSED_DATA_JSON'] ?? ''), true) : null;
 $logs = is_array($compareTask) ? $logRepository->findByTaskId((int) $compareTask['ID']) : [];
-$markedProducts = $flagProvider->findMarkedProducts();
+$markedProducts = [];
+try {
+    $markedProducts = $flagProvider->findMarkedProducts();
+} catch (Throwable $exception) {
+    $message = $message === null ? $exception->getMessage() : $message . "\n" . $exception->getMessage();
+    $messageType = 'error';
+}
 $queueTasks = $taskRepository->findByStatuses([TaskStatus::QUEUED, TaskStatus::PROCESSING], 50);
 $waitingTasks = $taskRepository->findByStatuses([TaskStatus::WAITING_CONFIRMATION], 50);
 $errorTasks = $taskRepository->findByStatuses([TaskStatus::ERROR], 50);
