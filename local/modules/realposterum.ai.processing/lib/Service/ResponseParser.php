@@ -42,11 +42,13 @@ final class ResponseParser
             if ($targetType === '' || $targetCode === '' || $jsonPath === '') {
                 continue;
             }
-            if (!$this->pathResolver->exists($rawContent, $jsonPath)) {
+
+            $resolvedValue = $this->resolveValue($rawContent, $targetType, $targetCode, $jsonPath);
+            if (!$resolvedValue['found']) {
                 continue;
             }
 
-            $newValue = $this->pathResolver->get($rawContent, $jsonPath);
+            $newValue = $resolvedValue['value'];
             if (!$allowEmpty && $this->isEmptyValue($newValue)) {
                 continue;
             }
@@ -90,6 +92,67 @@ final class ResponseParser
             'properties' => $properties,
             'selected_by_default' => $selectedByDefault,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $rawContent
+     * @return array{found: bool, value: mixed}
+     */
+    private function resolveValue(array $rawContent, string $targetType, string $targetCode, string $jsonPath): array
+    {
+        foreach ($this->buildCandidatePaths($targetType, $targetCode, $jsonPath) as $candidatePath) {
+            if (!$this->pathResolver->exists($rawContent, $candidatePath)) {
+                continue;
+            }
+
+            return [
+                'found' => true,
+                'value' => $this->pathResolver->get($rawContent, $candidatePath),
+            ];
+        }
+
+        return [
+            'found' => false,
+            'value' => null,
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function buildCandidatePaths(string $targetType, string $targetCode, string $jsonPath): array
+    {
+        $candidates = [$jsonPath];
+
+        if (preg_match('/^(.+)\.([A-Za-z0-9_\-]+)$/', $jsonPath, $matches) === 1) {
+            $prefix = $matches[1];
+            $lastSegment = $matches[2];
+            $candidates[] = $prefix . '.' . strtolower($lastSegment);
+            $candidates[] = $prefix . '.' . strtoupper($lastSegment);
+        } else {
+            $candidates[] = strtolower($jsonPath);
+            $candidates[] = strtoupper($jsonPath);
+        }
+
+        if ($targetType === 'field') {
+            $normalizedCode = strtoupper($targetCode);
+            $codeLower = strtolower($targetCode);
+
+            $candidates[] = 'fields.' . $normalizedCode;
+            $candidates[] = 'fields.' . $codeLower;
+            $candidates[] = 'content.' . $codeLower;
+
+            if ($normalizedCode === 'NAME') {
+                $candidates[] = 'content.title';
+                $candidates[] = 'content.name';
+            } elseif ($normalizedCode === 'PREVIEW_TEXT') {
+                $candidates[] = 'content.preview_text';
+            } elseif ($normalizedCode === 'DETAIL_TEXT') {
+                $candidates[] = 'content.detail_text';
+            }
+        }
+
+        return array_values(array_unique(array_filter($candidates, static fn ($path): bool => $path !== '')));
     }
 
     private function isEmptyValue(mixed $value): bool
