@@ -176,15 +176,22 @@ $renderComparisonDetails = static function (
     string $oldLabel,
     mixed $oldValue,
     string $newLabel,
-    mixed $newValue
+    mixed $newValue,
+    bool $showNewValue = true
 ) use ($renderValue): string {
-    return '<details style="margin-top:8px;">'
+    $html = '<details style="margin-top:8px;">'
         . '<summary style="cursor:pointer;color:#2067b0;">' . htmlspecialcharsbx($summary) . '</summary>'
-        . '<div style="margin-top:8px;"><strong>' . htmlspecialcharsbx($oldLabel) . ':</strong><pre style="white-space:pre-wrap; margin:4px 0 8px;">'
+        . '<div style="margin-top:8px;"><strong>' . htmlspecialcharsbx($oldLabel) . ':</strong><pre style="white-space:pre-wrap; margin:4px 0 0;">'
         . htmlspecialcharsbx($renderValue($oldValue))
-        . '</pre></div><div><strong>' . htmlspecialcharsbx($newLabel) . ':</strong><pre style="white-space:pre-wrap; margin:4px 0 0;">'
-        . htmlspecialcharsbx($renderValue($newValue))
-        . '</pre></div></details>';
+        . '</pre></div>';
+
+    if ($showNewValue) {
+        $html .= '<div><strong>' . htmlspecialcharsbx($newLabel) . ':</strong><pre style="white-space:pre-wrap; margin:4px 0 0;">'
+            . htmlspecialcharsbx($renderValue($newValue))
+            . '</pre></div>';
+    }
+
+    return $html . '</details>';
 };
 
 $flattenData = static function (mixed $value, string $prefix = '') use (&$flattenData): array {
@@ -395,6 +402,38 @@ $requestPreviewRows = is_array($compareSnapshot) && is_array($requestPayload)
 $responsePreviewRows = is_array($compareSnapshot) && is_array($responseContent)
     ? $buildMappedPreviewRows($settings->getInboundMappings(), $compareSnapshot, $responseContent, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), 'target_type', 'target_code')
     : [];
+$fallbackEditableRows = [];
+
+if (is_array($compareData) && is_array($compareSnapshot)) {
+    foreach ((array) ($compareData['fields'] ?? []) as $code => $value) {
+        $fallbackEditableRows[] = [
+            'key' => 'field:' . (string) $code,
+            'target_type' => 'field',
+            'target_code' => (string) $code,
+            'old_value' => $getSnapshotValue($compareSnapshot, 'field', (string) $code),
+            'new_value' => $value,
+        ];
+    }
+
+    foreach ((array) ($compareData['properties'] ?? []) as $code => $value) {
+        $fallbackEditableRows[] = [
+            'key' => 'property:' . (string) $code,
+            'target_type' => 'property',
+            'target_code' => (string) $code,
+            'old_value' => $getSnapshotValue($compareSnapshot, 'property', (string) $code),
+            'new_value' => $value,
+        ];
+    }
+}
+
+$editableRows = !empty($compareData['comparison']) ? (array) $compareData['comparison'] : $fallbackEditableRows;
+$selectedByDefault = is_array($compareData['selected_by_default'] ?? null) ? (array) $compareData['selected_by_default'] : [];
+if ($selectedByDefault === [] && $editableRows !== []) {
+    $selectedByDefault = array_values(array_filter(array_map(
+        static fn (array $row): string => (string) ($row['key'] ?? ''),
+        $editableRows
+    )));
+}
 
 $APPLICATION->SetTitle('Очередь RealPosterum AI Processing');
 require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_after.php';
@@ -480,7 +519,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                 <div style="font-weight:600; margin-bottom:6px;">Точный запрос</div>
                 <textarea rows="14" readonly aria-label="Что отправили в AI" style="width:100%;box-sizing:border-box;"><?= htmlspecialcharsbx((string) ($compareTask['REQUEST_BODY'] ?? $compareTask['MAPPED_PAYLOAD_JSON'])) ?></textarea>
             </details>
-            <?php if (!empty($compareData['comparison'])): ?>
+            <?php if ($editableRows !== []): ?>
                 <form method="post">
                     <?= bitrix_sessid_post() ?>
                     <input type="hidden" name="action" value="apply">
@@ -488,7 +527,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                     <table class="adm-list-table" width="100%">
                         <thead><tr class="adm-list-table-header"><td width="6%">Применить</td><td width="24%">Поле</td><td width="70%">Ответ сервиса / редактор</td></tr></thead>
                         <tbody>
-                        <?php foreach ((array) ($compareData['comparison'] ?? []) as $index => $row): ?>
+                        <?php foreach ($editableRows as $index => $row): ?>
                             <?php
                             $comparisonKey = (string) ($row['key'] ?? '');
                             $controlConfig = $fieldCatalog->getInputControl(
@@ -503,14 +542,14 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                             $inputId = 'edited_' . preg_replace('/[^a-z0-9_]+/i', '_', $comparisonKey);
                             ?>
                             <tr class="adm-list-table-row">
-                                <td class="adm-list-table-cell" style="vertical-align:top;"><input type="checkbox" name="selected_fields[]" value="<?= htmlspecialcharsbx($comparisonKey) ?>"<?= in_array($comparisonKey, (array) ($compareData['selected_by_default'] ?? []), true) ? ' checked' : '' ?>></td>
+                                <td class="adm-list-table-cell" style="vertical-align:top;"><input type="checkbox" name="selected_fields[]" value="<?= htmlspecialcharsbx($comparisonKey) ?>"<?= in_array($comparisonKey, $selectedByDefault, true) ? ' checked' : '' ?>></td>
                                 <td class="adm-list-table-cell" style="vertical-align:top;">
                                     <strong><?= (int) $index + 1 ?>. <?= htmlspecialcharsbx($getFieldLabel($fieldCatalog, (int) ($compareTask['SOURCE_IBLOCK_ID'] ?? 0), (string) ($row['target_type'] ?? ''), (string) ($row['target_code'] ?? ''))) ?></strong><br>
                                     <span style="color:#666;"><?= htmlspecialcharsbx((string) ($row['target_code'] ?? '')) ?></span>
                                 </td>
                                 <td class="adm-list-table-cell" style="vertical-align:top;">
                                     <?= $renderEditableControl($inputName, $inputId, $editedValue, $controlConfig) ?>
-                                    <?= $renderComparisonDetails('Показать что было', 'В карточке', $row['old_value'] ?? null, 'Ответ сервиса', $row['new_value'] ?? null) ?>
+                                    <?= $renderComparisonDetails('Показать что было', 'В карточке', $row['old_value'] ?? null, 'Ответ сервиса', $row['new_value'] ?? null, false) ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -531,14 +570,14 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
                                 </td>
                                 <td class="adm-list-table-cell">
                                     <pre style="white-space:pre-wrap; margin:0;"><?= htmlspecialcharsbx($renderValue($row['new_value'] ?? null)) ?></pre>
-                                    <?= $renderComparisonDetails('Показать что было', 'В карточке', $row['old_value'] ?? null, 'Ответ сервиса', $row['new_value'] ?? null) ?>
+                                    <?= $renderComparisonDetails('Показать что было', 'В карточке', $row['old_value'] ?? null, 'Ответ сервиса', $row['new_value'] ?? null, false) ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
                     </table>
                 <?php endif; ?>
-                <div class="adm-info-message-wrap"><div class="adm-info-message">Автоматически сопоставленных изменений нет. Ответ сервиса и отправленный запрос раскрыты выше, а по кнопке «Показать что было» видно исходные данные товара для сравнения.</div></div>
+                <div class="adm-info-message-wrap"><div class="adm-info-message">Подходящих полей для сохранения не найдено. Ответ сервиса и отправленный запрос раскрыты выше, а по кнопке «Показать что было» видно исходные данные товара для сравнения.</div></div>
             <?php endif; ?>
             <form method="post" style="margin-bottom:16px;">
                 <?= bitrix_sessid_post() ?>
