@@ -77,4 +77,127 @@ final class FieldCatalog
             throw new RuntimeException(sprintf('Поле %s:%s не найдено.', $type, $code));
         }
     }
+
+    /**
+     * @return array{type: string}
+     */
+    public function getInputControl(int $iblockId, string $type, string $code): array
+    {
+        if ($type === 'field') {
+            return match ($code) {
+                'NAME', 'CODE', 'XML_ID', 'ACTIVE', 'TAGS', 'PREVIEW_TEXT_TYPE', 'DETAIL_TEXT_TYPE' => ['type' => 'text'],
+                'PREVIEW_TEXT', 'DETAIL_TEXT' => ['type' => 'html'],
+                default => ['type' => 'textarea'],
+            };
+        }
+
+        if ($type !== 'property') {
+            return ['type' => 'textarea'];
+        }
+
+        $property = $this->getPropertyMetadata($iblockId, $code);
+        if ($property === null) {
+            return ['type' => 'textarea'];
+        }
+
+        if ($this->isHtmlProperty($property)) {
+            return ['type' => 'html'];
+        }
+
+        if ((string) ($property['MULTIPLE'] ?? 'N') === 'Y' || $this->isLongTextProperty($property)) {
+            return ['type' => 'textarea'];
+        }
+
+        return ['type' => 'text'];
+    }
+
+    /**
+     * @return array{fields: array<string, mixed>, properties: array<string, mixed>}
+     */
+    public function prepareValueForSave(int $iblockId, string $type, string $code, mixed $value): array
+    {
+        if ($type === 'field') {
+            if ($code === 'PREVIEW_TEXT' || $code === 'DETAIL_TEXT') {
+                return [
+                    'fields' => [
+                        $code => (string) $value,
+                        $code . '_TYPE' => 'html',
+                    ],
+                    'properties' => [],
+                ];
+            }
+
+            return [
+                'fields' => [$code => $value],
+                'properties' => [],
+            ];
+        }
+
+        if ($type !== 'property') {
+            return ['fields' => [], 'properties' => []];
+        }
+
+        $property = $this->getPropertyMetadata($iblockId, $code);
+        if ($property !== null && $this->isHtmlProperty($property)) {
+            return [
+                'fields' => [],
+                'properties' => [
+                    $code => ['VALUE' => ['TEXT' => (string) $value, 'TYPE' => 'html']],
+                ],
+            ];
+        }
+
+        return [
+            'fields' => [],
+            'properties' => [$code => $value],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getPropertyMetadata(int $iblockId, string $code): ?array
+    {
+        if ($iblockId <= 0 || $code === '') {
+            return null;
+        }
+
+        if (!Loader::includeModule('iblock')) {
+            throw new RuntimeException('Не удалось подключить модуль iblock.');
+        }
+
+        $filter = ['IBLOCK_ID' => $iblockId, 'CODE' => $code];
+        if (ctype_digit($code)) {
+            $filter = [
+                'IBLOCK_ID' => $iblockId,
+                [
+                    'LOGIC' => 'OR',
+                    ['CODE' => $code],
+                    ['ID' => (int) $code],
+                ],
+            ];
+        }
+
+        $result = \CIBlockProperty::GetList([], $filter);
+        $property = $result->Fetch();
+
+        return is_array($property) ? $property : null;
+    }
+
+    /**
+     * @param array<string, mixed> $property
+     */
+    private function isHtmlProperty(array $property): bool
+    {
+        return (string) ($property['PROPERTY_TYPE'] ?? '') === 'S'
+            && strtoupper((string) ($property['USER_TYPE'] ?? '')) === 'HTML';
+    }
+
+    /**
+     * @param array<string, mixed> $property
+     */
+    private function isLongTextProperty(array $property): bool
+    {
+        return (int) ($property['ROW_COUNT'] ?? 0) > 1 || (int) ($property['COL_COUNT'] ?? 0) >= 60;
+    }
 }

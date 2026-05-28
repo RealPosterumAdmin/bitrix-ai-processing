@@ -67,7 +67,8 @@ final class ProcessingFlagProvider
             throw new RuntimeException('Не удалось подключить модуль iblock.');
         }
 
-        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$propertyCode => false]);
+        $property = $this->getPropertyMetadata($iblockId, $propertyCode);
+        \CIBlockElement::SetPropertyValuesEx($productId, $iblockId, [$propertyCode => $this->buildEmptyValue($property)]);
     }
 
     /**
@@ -87,5 +88,48 @@ final class ProcessingFlagProvider
         }
 
         return $cleared;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function getPropertyMetadata(int $iblockId, string $propertyCode): ?array
+    {
+        $filter = ['IBLOCK_ID' => $iblockId, 'CODE' => $propertyCode];
+        if (ctype_digit($propertyCode)) {
+            $filter = [
+                'IBLOCK_ID' => $iblockId,
+                [
+                    'LOGIC' => 'OR',
+                    ['CODE' => $propertyCode],
+                    ['ID' => (int) $propertyCode],
+                ],
+            ];
+        }
+
+        $result = \CIBlockProperty::GetList([], $filter);
+        $property = $result->Fetch();
+
+        return is_array($property) ? $property : null;
+    }
+
+    /**
+     * @param array<string, mixed>|null $property
+     */
+    private function buildEmptyValue(?array $property): mixed
+    {
+        if ($property === null) {
+            return false;
+        }
+
+        if ((string) ($property['PROPERTY_TYPE'] ?? '') === 'S' && strtoupper((string) ($property['USER_TYPE'] ?? '')) === 'HTML') {
+            return ['VALUE' => ['TEXT' => '', 'TYPE' => 'html']];
+        }
+
+        if ((string) ($property['MULTIPLE'] ?? 'N') === 'Y') {
+            return [];
+        }
+
+        return '';
     }
 }
