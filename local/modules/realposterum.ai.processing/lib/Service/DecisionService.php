@@ -35,7 +35,12 @@ final class DecisionService
         }
 
         $parsed = json_decode((string) ($task['PARSED_DATA_JSON'] ?? ''), true);
-        if (!is_array($parsed) || !is_array($parsed['comparison'] ?? null)) {
+        if (!is_array($parsed)) {
+            throw new RuntimeException('У задачи нет валидного результата для применения.');
+        }
+
+        $rows = $this->getApplicableRows($parsed);
+        if ($rows === []) {
             throw new RuntimeException('У задачи нет валидного результата для применения.');
         }
 
@@ -47,7 +52,7 @@ final class DecisionService
 
         $elementFields = [];
         $propertyValues = [];
-        foreach ($parsed['comparison'] as $row) {
+        foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
@@ -102,6 +107,14 @@ final class DecisionService
         }
 
         $selected = is_array($parsed['selected_by_default'] ?? null) ? $parsed['selected_by_default'] : [];
+        if ($selected === []) {
+            $selected = array_map(
+                static fn (array $row): string => (string) ($row['key'] ?? ''),
+                $this->getApplicableRows($parsed)
+            );
+            $selected = array_values(array_filter($selected, static fn (string $key): bool => $key !== ''));
+        }
+
         $this->approve($taskId, array_map('strval', $selected));
     }
 
@@ -151,5 +164,38 @@ final class DecisionService
         }
 
         return $editedValue;
+    }
+
+    /**
+     * @param array<string, mixed> $parsed
+     * @return array<int, array<string, mixed>>
+     */
+    private function getApplicableRows(array $parsed): array
+    {
+        $comparison = is_array($parsed['comparison'] ?? null) ? $parsed['comparison'] : [];
+        if ($comparison !== []) {
+            return array_values(array_filter($comparison, 'is_array'));
+        }
+
+        $rows = [];
+        foreach ((array) ($parsed['fields'] ?? []) as $code => $value) {
+            $rows[] = [
+                'key' => 'field:' . (string) $code,
+                'target_type' => 'field',
+                'target_code' => (string) $code,
+                'new_value' => $value,
+            ];
+        }
+
+        foreach ((array) ($parsed['properties'] ?? []) as $code => $value) {
+            $rows[] = [
+                'key' => 'property:' . (string) $code,
+                'target_type' => 'property',
+                'target_code' => (string) $code,
+                'new_value' => $value,
+            ];
+        }
+
+        return $rows;
     }
 }
